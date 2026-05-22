@@ -92,7 +92,8 @@ ai.condition =
     NO_MAX_RUNE        = 32,
     HAS_RUNES          = 33,
     LUNGE_MB_AVAILABLE = 34,
-    SUB_ANIMATION      = 35,
+	SUB_ANIMATION      = 35,
+    LOCALVAR_GTE       = 36, -- checks "[Gambit]EngageElapsed" localvar >= condition_arg (seconds since engage)
 }
 ai.c = ai.condition
 

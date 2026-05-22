@@ -1306,6 +1306,12 @@ bool CGambitsContainer::CheckTrigger(const CBattleEntity* triggerTarget, Predica
                 predicateResults.push_back(triggerTarget->animationsub == predicate.condition_arg);
                 continue;
             }
+			case G_CONDITION::LOCALVAR_GTE:
+            {
+                auto elapsed = POwner->GetLocalVar("[Gambit]EngageElapsed");
+                predicateResults.push_back(elapsed >= (uint32)predicate.condition_arg);
+                continue;
+            }
             default:
             {
                 predicateResults.push_back(false);

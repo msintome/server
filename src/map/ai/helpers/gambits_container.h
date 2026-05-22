@@ -97,7 +97,8 @@ enum class G_CONDITION : uint16
     NO_MAX_RUNE        = 32,
     HAS_RUNES          = 33,
     LUNGE_MB_AVAILABLE = 34,
-    SUB_ANIMATION      = 35,
+	SUB_ANIMATION      = 35,
+    LOCALVAR_GTE       = 36,
 };
 
 enum class G_REACTION : uint16
