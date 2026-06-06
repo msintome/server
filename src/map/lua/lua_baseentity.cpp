@@ -6003,6 +6003,9 @@ auto CLuaBaseEntity::getEquipmentModelIds() -> sol::table
     table["hands"] = PChar->look.hands;
     table["main"]  = PChar->look.main;
     table["sub"]   = PChar->look.sub;
+    table["legs"]   = PChar->look.legs;
+    table["feet"]   = PChar->look.feet;
+    table["ranged"] = PChar->look.ranged;
     return table;
 }
 

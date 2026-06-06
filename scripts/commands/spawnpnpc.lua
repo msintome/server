@@ -27,8 +27,8 @@ commandObj.onTrigger = function(player, name)
     local look = buildLook({
         race = xi.race.HUME_M, face = 0,         -- race/face aren't in that table; set to taste
         head = mine.head, body = mine.body, hands = mine.hands,
-        legs = 0, feet = 0,                       -- default until you fill them in
-        main = mine.main, sub = mine.sub,
+        legs = mine.legs, feet = mine.feet,                    -- default until you fill them in
+        main = mine.main, sub = mine.sub, ranged = mine.ranged,
     })
 
     local npc = zoneObj:insertDynamicEntity({
@@ -39,7 +39,7 @@ commandObj.onTrigger = function(player, name)
         y        = player:getYPos(),
         z        = player:getZPos(),
         rotation = player:getRotPos(),
-        namevis  = 0,
+        namevis  = 64,
         releaseIdOnDisappear = true,
     })
 
