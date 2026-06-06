@@ -31,7 +31,8 @@ spellObject.onMobSpawn = function(mob)
 
     -- Shantotto has 100% melee hit rate always.
     -- TODO: Add support for 'perfect accuracy' in c++ land and stop hacking her accuracy.
-    mob:addMod(xi.mod.ACC, 1000)
+    -- Marcus changed this to 33% accuracy - getting too much emnity
+    mob:addMod(xi.mod.ACC, 33)
 
     -- Shantotto II attack type is suposed to be 'typeless physical, like requiescat WS.'
     mob:setMobSkillAttack(1163)
