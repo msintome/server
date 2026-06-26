@@ -50,20 +50,16 @@ local namePool =
 
 local poi =
 {
-    { name = 'Auction House',      x =   4.284, y =  1.800, z =  59.834 },
-    { name = 'Main Plaza',         x = -64.390, y =  1.000, z =  23.704 },
-    { name = 'Residential Area',   x = -76.415, y = -1.199, z =  80.011 },
-    { name = 'Mog House Entrance', x =  43.637, y = -5.000, z = -73.161 },
-    { name = 'Home Point',         x = -52.000, y =  1.000, z =  16.000 },
-    { name = "Doctor's Office",    x = -42.381, y = -0.499, z =  -1.913 },
-    { name = 'Market District',    x = -55.378, y = -0.301, z =  44.873 },
-    { name = 'Residential Path',   x = -75.041, y = -1.200, z =  57.281 },
-    { name = 'Upper Shops',        x = -54.310, y =  8.200, z =  85.940 },
-    { name = 'Chocobo Stables',    x = -61.421, y =  8.199, z =  94.162 },
+    { name = 'Shop',      x =   -44.2267, y =  -1.2200, z =  136.8933 },
+    { name = 'Exit',      x =   -96.6679, y =  -0.0000, z =  168.7411 },
+    { name = 'Auction House',      x = -53.5065, y =  0.9999, z =  17.7009 },
+    { name = 'Commercial District',      x =   -5.8746, y =  2.0002, z =  69.0719 },
+    { name = 'Mog House',      x =   43.7657, y =  -5.0000, z =  -73.6424 },
+    { name = 'Chocobo Stables',    x = -52.6679, y =  8.2001, z =  90.4535 },
 }
 
 local PNPC_COUNT      = 5
-local STAND_TIME_MS   = 30000
+local STAND_TIME_MS   = 8000
 local RESPAWN_DELAY_MS = 3000
 
 local activeForPlayer = {}
@@ -105,15 +101,15 @@ local function spawnOnePNPC(zone, player)
         releaseIdOnDisappear = true,
 
         onPathComplete = function(npc)
-            player:printToPlayer(
-                string.format('%s arrived at the %s.', name, destPoi.name),
-                xi.msg.channel.NS_SAY
-            )
+            -- player:printToPlayer(
+            --     string.format('%s arrived at the %s.', name, destPoi.name),
+            --     xi.msg.channel.NS_SAY
+            -- )
             npc:setStatus(xi.status.DISAPPEAR)
 
             if activeForPlayer[playerId] then
                 player:timer(RESPAWN_DELAY_MS, function(_)
-                    spawnOnePNPC(zone, player)
+                    -- spawnOnePNPC(zone, player)
                 end)
             end
         end,
@@ -152,7 +148,7 @@ zoneObject.afterZoneIn = function(player)
         player:timer((i - 1) * 1000, function(_)
             local zone = player:getZone()  -- safe here, player fully loaded
             if zone then
-                spawnOnePNPC(zone, player)
+                -- spawnOnePNPC(zone, player)
             end
         end)
     end
