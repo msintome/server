@@ -21,7 +21,7 @@
 
 #include "0x015_pos.h"
 
-#include "entities/charentity.h"
+#include "entities/char_entity.h"
 #include "packets/s2c/0x0f5_tracking_pos.h"
 
 auto GP_CLI_COMMAND_POS::validate(MapSession* PSession, const CCharEntity* PChar) const -> PacketValidationResult
@@ -71,6 +71,11 @@ void GP_CLI_COMMAND_POS::process(MapSession* PSession, CCharEntity* PChar) const
     if (moved)
     {
         PChar->updatemask |= UPDATE_POS; // Indicate that we want to update this PChar's PChar->loc or targID
+
+        if (PChar->loc.zone != nullptr)
+        {
+            PChar->loc.zone->onEntityMoved(PChar);
+        }
 
         // Calculate rough amount of steps taken
         if (PChar->m_previousLocation.zone->GetID() == PChar->loc.zone->GetID())
