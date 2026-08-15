@@ -36,6 +36,24 @@ Code to drive branch/commit/merge operations and explain each step.
 - Tooling: HeidiSQL (queries), Visual Studio 2026 Community + CMake (C++ builds),
   Node.js (companion tooling), PowerShell (no `grep` — use
   `Get-ChildItem -Recurse -Include *.lua | Select-String`).
+- **C++ builds must run in the x64 developer environment.** A plain shell (Git Bash
+  or PowerShell) has `LIB` pointing at **x86**, so compilation succeeds but the link
+  dies with hundreds of unresolved externals plus `LNK4272: library machine type
+  'x86' conflicts with target machine type 'x64'`. Build from Visual Studio, or wrap
+  the command:
+  `cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul && python tools\build.py --target xi_map --build-only'`
+  (vcvars64 prints a harmless `'vswhere.exe' is not recognized` and works anyway.)
+- **After a Visual Studio / MSVC update, clear the stale PCHs.** They are locked to
+  the compiler that built them, so the next build fails with `fatal error C1853:
+  precompiled header file is from a different version of the compiler`. Delete
+  `cmake_pch.cxx.pch` / `.obj` under `build/src/**/CMakeFiles/*.dir/` (leave the
+  separate `build/x64-Debug` and `build/x64-Release` VS dirs alone) and rebuild.
+  Seen 2026-08-15: `build/` was configured 2026-06-26, MSVC updated 2026-08-04.
+- **Verify build success from the log, not the exit code** — piping the build through
+  `tail`, or appending an `echo`, makes the shell report the *last* command's status
+  and a failed build looks like exit 0. Check for `LNK`/`FAILED`/`fatal error` in the
+  output and confirm the `xi_map.exe` timestamp actually moved.
+- Stop the server before building: the link cannot overwrite a running `xi_map.exe`.
 - Start/stop: `C:\ffxi\start-server.bat`, `C:\ffxi\stop-server.bat`.
 - Characters: **Kane** (main), Amalie (Taru), Buzzykins (retired GM-test).
 
@@ -104,7 +122,7 @@ so the actual source in `C:\ffxi\server` is ground truth here. Established facts
 > Reference-on-demand. If you want to shave always-loaded context later, split this
 > section into its own file and `@`-reference it only when working on these areas.
 
-### XI_LIFE (branch `xilife`) — PlayerNPC city population
+### XI_LIFE (branches `xilife`, `claude-skipping-fix`) — PlayerNPC city population
 
 Adds player-looking NPCs to cities for a retail feel. Working in **Upper Jeuno**:
 five random PlayerNPCs (random race/face/gear), gear persistence, pathfinding,
@@ -112,13 +130,35 @@ standing at POIs and walking between them. Nameplate persistence partially resol
 (correct on re-entry via fresh spawn packet; brief disappearance on initial spawn is
 an accepted limitation).
 
-- **Open issue — "skipping" movement.** PlayerNPCs skip/teleport rather than walking
-  smoothly — the main immersion-breaker. Leading hypothesis: movement speed/cadence in
-  the entity update packet (`speed`/`speedsub` wrong or `0` → client snaps to each new
-  position instead of interpolating and animating), since trusts (server-side entities)
-  move smoothly. **Next step (deferred):** compare LSB trust/mob movement + speed fields
-  against the `xilife` POI walker. Note #10403 `spatial_hashing` is in this build and
-  sits near movement/visibility code — worth reading its diff when revisiting.
+**Active branch: `claude-skipping-fix`** (cut from `xilife`, has `ms-base` merged in
+so the docs travel with it). Holds the movement fix below; not yet merged back to
+`xilife`. Continue here. Note the two `spawnOnePNPC` calls in `Upper_Jeuno/Zone.lua`
+are now live — comment them out again to disable the population system. Zone scripts
+only reload on **map server restart**, unlike NPC/mob scripts.
+
+- **RESOLVED 2026-08-15 — "skipping" movement** (branch `claude-skipping-fix`,
+  verified in client: they now walk and run with a continuous animation cycle).
+  The speed/`speedsub` hypothesis was **wrong** — `GetSpeed()` and `animationSpeed`
+  are written correctly to `0x1C`/`0x1D` and were never the problem.
+  Real cause was a **packet offset collision at `0x18`**: the `UPDATE_POS` block in
+  `entity_update.cpp` writes `loc.p.moving` there, but the every-update rename path
+  for equipped-look dynamic NPCs then wrote `0x01` to the same offset (the flag that
+  makes the client read the long name from `0x44`), clobbering the low byte.
+  `CPathFind` advances `loc.p.moving` by `0x35` per tick (wraps at `0x2000`), and
+  `common/mmo.h` calls it "the number of steps required for correct rendering in the
+  client" — so the client saw the counter stall ~5 ticks then jump `0x100`, and kept
+  restarting the "start running" animation instead of settling into the run cycle.
+  Fix: exclude these entities from the per-update rename block. They get their name
+  from the `ENTITY_SPAWN` path and have no client-side default name to revert to, so
+  the rename was never needed for them.
+- **Watch for more offset collisions.** This was the *second* one in this packet: the
+  earlier bug wrote the name at `0x34` over the gear model IDs at `0x34-0x43`. When
+  dynamic-NPC work misbehaves visually, suspect two writers to one offset before
+  suspecting game logic. Note `isRenamed` is set unconditionally for **every**
+  `insertDynamicEntity` (`luautils.cpp`), so all such NPCs hit the rename path.
+- **Fallback if nameplates regress:** gate the name layout on `loc.p.moving == 0`
+  instead of excluding it, so names refresh while standing at a POI but never
+  interfere while walking. Not needed as of the 2026-08-15 test.
 - **Alternative approach considered:** network-injection — a separate console app
   connecting as real PC session(s) so the retail client renders them via its
   player-interpolation path (smooth movement, plus real nameplates, `/sea`, and chat as
