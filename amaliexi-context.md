@@ -41,10 +41,19 @@ Code to drive branch/commit/merge operations and explain each step.
 
 ## Git workflow
 
-- Fork: `msintome/server`. Branches: `ms-base` (tracks upstream `base`),
-  `xilife` (custom work, built on top of `ms-base`).
+- Fork: `msintome/server` (remote `origin`); upstream LSB is remote `upstream`.
+  Branches: `ms-base` (integration branch — merges upstream `base`, and also
+  carries custom work), `xilife` (PlayerNPC work).
+- **Custom work on `ms-base` is fine and expected.** It is an integration branch,
+  not a pure upstream mirror. Do not insist on isolating custom changes onto
+  `xilife`; new files at repo root carry no real merge-conflict risk, since
+  upstream will never touch them.
+- **Before really big or experimental changes, copy the branch first**
+  (`git branch ms-base-<what> ms-base`) so there is a known-good state to return
+  to. This is the safety net that replaces strict branch separation.
 - **Merge-based, not rebase.** Commit working checkpoints incrementally. Tag
   known-good states.
+- Push to `origin` only, by explicit branch name. Never push to `upstream`.
 - When creating branches/commits, follow this model; keep changes small and
   verifiable, one step at a time.
 
