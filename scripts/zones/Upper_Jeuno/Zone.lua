@@ -109,7 +109,7 @@ local function spawnOnePNPC(zone, player)
 
             if activeForPlayer[playerId] then
                 player:timer(RESPAWN_DELAY_MS, function(_)
-                    -- spawnOnePNPC(zone, player)
+                    spawnOnePNPC(zone, player)
                 end)
             end
         end,
@@ -148,7 +148,7 @@ zoneObject.afterZoneIn = function(player)
         player:timer((i - 1) * 1000, function(_)
             local zone = player:getZone()  -- safe here, player fully loaded
             if zone then
-                -- spawnOnePNPC(zone, player)
+                spawnOnePNPC(zone, player)
             end
         end)
     end
