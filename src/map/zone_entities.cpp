@@ -1771,6 +1771,12 @@ auto CZoneEntities::npcTick(CNpcEntity* PNpc, timer::time_point tick) -> Task<vo
         {
             if (PChar->SpawnNPCList.find(PNpc->id) != PChar->SpawnNPCList.end())
             {
+                // Tell the client before dropping the entity. Erasing it from SpawnNPCList alone
+                // means CZoneEntities::SpawnNPCs will never see it again, so its usual removal pass
+                // never gets to send the despawn - and once the entity is destroyed below, nothing
+                // ever mentions it to the client again. The result is a permanently stuck copy
+                // rendered on anyone who happened to have it in view when it disappeared.
+                PChar->updateEntityPacket(PNpc, ENTITY_DESPAWN, UPDATE_NONE);
                 PChar->SpawnNPCList.erase(PNpc->id);
             }
         }

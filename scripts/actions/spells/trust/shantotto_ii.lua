@@ -31,8 +31,8 @@ spellObject.onMobSpawn = function(mob)
 
     -- Shantotto has 100% melee hit rate always.
     -- TODO: Add support for 'perfect accuracy' in c++ land and stop hacking her accuracy.
-    -- Marcus changed this to 33% accuracy - getting too much emnity
-    mob:addMod(xi.mod.ACC, 33)
+    -- Marcus changed this to 88% accuracy - getting too much emnity
+    mob:addMod(xi.mod.ACC, 88)
 
     -- Shantotto II attack type is suposed to be 'typeless physical, like requiescat WS.'
     mob:setMobSkillAttack(1163)
@@ -50,7 +50,7 @@ spellObject.onMobSpawn = function(mob)
 
     -- Spellcast (occasionally)
     mob:addListener('MAGIC_USE', 'SHANTOTTO_II_MAGIC', function(mobArg, target, spell, action)
-        if math.random(1, 100) <= 33 then
+        if math.random(1, 100) <= 88 then
             -- Ohohohohoho!
             xi.trust.message(mobArg, xi.trust.messageOffset.SPECIAL_MOVE_2)
         end

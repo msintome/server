@@ -45,6 +45,11 @@ class CEntityUpdatePacket : public CBasicPacket
 public:
     CEntityUpdatePacket(CBaseEntity* PEntity, ENTITYUPDATE type, uint8 updatemask);
     void updateWith(CBaseEntity* PEntity, ENTITYUPDATE type, uint8 updatemask);
+
+private:
+    // Set once this packet has been laid out with the long-name (Name2) format, so that a later
+    // updateWith() merged into the same queued packet re-applies it instead of half-overwriting it.
+    bool usedLongNameLayout_ = false;
 };
 
 #endif
