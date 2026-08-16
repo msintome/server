@@ -435,6 +435,14 @@ end
 -- Chatter
 -----------------------------------
 
+-- Zone-wide lines, precomputed. Used when nobody is close enough to overhear a local remark.
+local shoutLines = {}
+for _, line in ipairs(xi.xiLife.chatter.lines) do
+    if line.channel == 'shout' then
+        table.insert(shoutLines, line)
+    end
+end
+
 local function livingPNPCs(zone)
     local found = {}
 
@@ -519,8 +527,28 @@ local function speakOnce(zone, zoneId)
         return
     end
 
-    local npc  = speakers[math.random(#speakers)]
-    local line = xi.xiLife.chatter.lines[math.random(#xi.xiLife.chatter.lines)]
+    local npc = speakers[math.random(#speakers)]
+
+    -- Work out who could actually overhear this speaker before choosing what it says. Picking the
+    -- line first wasted over half of every firing: 'say' lines only carry within SAY_RANGE, and in
+    -- a capital the odds of a randomly chosen PNPC standing that close to the player are slim, so
+    -- most ticks produced silence. With no one in earshot, only zone-wide lines are eligible.
+    local nearby = {}
+    for _, player in pairs(zone:getPlayers()) do
+        local dx = player:getXPos() - npc:getXPos()
+        local dz = player:getZPos() - npc:getZPos()
+
+        if ((dx * dx) + (dz * dz)) <= (SAY_RANGE * SAY_RANGE) then
+            table.insert(nearby, player)
+        end
+    end
+
+    local pool = #nearby > 0 and xi.xiLife.chatter.lines or shoutLines
+    if #pool == 0 then
+        return
+    end
+
+    local line = pool[math.random(#pool)]
 
     -- The job is only known for PNPCs wearing a full Artifact set; the rest fall back to a random
     -- job in the line, which is fine since nobody can tell what a mixed-gear player is playing.
@@ -531,28 +559,33 @@ local function speakOnce(zone, zoneId)
         job  = jobId > 0 and xi.xiLife.chatter.tokens.job[jobId] or nil,
     }
 
-    local text      = fillTokens(line.text, speaker)
-    local isShout   = line.channel == 'shout'
-    local channel   = isShout and xi.msg.channel.SHOUT or xi.msg.channel.SAY
+    local text    = fillTokens(line.text, speaker)
+    local isShout = line.channel == 'shout'
+    local channel = isShout and xi.msg.channel.SHOUT or xi.msg.channel.SAY
+    local heard   = isShout and zone:getPlayers() or nearby
 
-    for _, player in pairs(zone:getPlayers()) do
-        local heard = isShout
-
-        if not heard then
-            local dx = player:getXPos() - npc:getXPos()
-            local dz = player:getZPos() - npc:getZPos()
-            heard = ((dx * dx) + (dz * dz)) <= (SAY_RANGE * SAY_RANGE)
-        end
-
-        if heard then
-            player:printToPlayer(text, channel, speaker.name)
-        end
+    for _, player in pairs(heard) do
+        player:printToPlayer(text, channel, speaker.name)
     end
 end
 
-scheduleChatter = function(zone, zoneId)
+-- Each zone's chatter loop carries a generation number. Restarting a zone bumps it, which
+-- retires any chain still queued from a previous visit, so afterZoneIn can always start one
+-- without risking two running at once.
+--
+-- Anchoring the loop to a player's action queue means it dies whenever that player's timers are
+-- cleared, and the previous guard only started a chain on the transition into active - so once a
+-- chain was lost the zone went permanently quiet. Restarting unconditionally fixes that.
+scheduleChatter = function(zone, zoneId, generation)
     local state = zoneState[zoneId]
     if not state or not state.active then
+        return
+    end
+
+    if generation == nil then
+        state.chatterGeneration = (state.chatterGeneration or 0) + 1
+        generation = state.chatterGeneration
+    elseif generation ~= state.chatterGeneration then
         return
     end
 
@@ -564,8 +597,14 @@ scheduleChatter = function(zone, zoneId)
     local delay = math.random(CHATTER_MIN_DELAY_MS, CHATTER_MAX_DELAY_MS)
 
     player:timer(delay, function(_)
-        speakOnce(zone, zoneId)
-        scheduleChatter(zone, zoneId)
+        -- Re-arm before speaking. If speakOnce throws, the chain has already been queued, so a
+        -- single bad line cannot silence the zone for the rest of the session.
+        scheduleChatter(zone, zoneId, generation)
+
+        local ok, err = pcall(speakOnce, zone, zoneId)
+        if not ok then
+            printf('[XI_LIFE] chatter error in %s: %s', zone:getName(), tostring(err))
+        end
     end)
 end
 
@@ -586,16 +625,12 @@ m:addOverride('InteractionGlobal.afterZoneIn', function(player, fallbackFn)
         local state  = prepareZone(zone, zoneId)
 
         if state.enabled then
-            local wasActive = state.active
-
             state.active = true
             topUpPopulation(zone, zoneId)
 
-            -- Only start the loop on the transition into active, or a second player arriving
-            -- would leave two chains running and double the chatter rate.
-            if not wasActive then
-                scheduleChatter(zone, zoneId)
-            end
+            -- Always restart. The generation counter retires whatever was queued before, so this
+            -- cannot double the rate, and it recovers a chain that died with a player's timers.
+            scheduleChatter(zone, zoneId)
         end
     end
 
