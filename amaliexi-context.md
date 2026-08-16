@@ -60,14 +60,19 @@ Code to drive branch/commit/merge operations and explain each step.
 ## Git workflow
 
 - Fork: `msintome/server` (remote `origin`); upstream LSB is remote `upstream`.
-  Branches: `ms-base` (integration branch — merges upstream `base`, and also
-  carries custom work), `xilife` (PlayerNPC work).
-- **Custom work on `ms-base` is fine and expected.** It is an integration branch,
-  not a pure upstream mirror. Do not insist on isolating custom changes onto
-  `xilife`; new files at repo root carry no real merge-conflict risk, since
-  upstream will never touch them.
+- **`xilife` is the main line of development for this project.** All feature work
+  merges *into* `xilife`. `ms-base` is the staging point where upstream LSB lands,
+  and `xilife` merges `ms-base` to pick that up. The flow is
+  `upstream base → ms-base → xilife`, and `feature branch → xilife`.
+- **Cut feature branches from `xilife`, and merge them back into `xilife`** — not
+  into `ms-base`. (Corrected 2026-08-16: this file previously said custom work
+  belonged on `ms-base`, and the city PlayerNPC work was merged there first as a
+  result. `ms-base` consequently still carries that custom work; it was left
+  alone rather than rewriting pushed history, and costs nothing in practice since
+  almost all of it lives in `modules/custom/` and `tools/`, which upstream never
+  touches.)
 - **Before really big or experimental changes, copy the branch first**
-  (`git branch ms-base-<what> ms-base`) so there is a known-good state to return
+  (`git branch xilife-<what> xilife`) so there is a known-good state to return
   to. This is the safety net that replaces strict branch separation.
 - **Merge-based, not rebase.** Commit working checkpoints incrementally. Tag
   known-good states.
