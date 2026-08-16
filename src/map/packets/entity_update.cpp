@@ -227,6 +227,18 @@ struct GP_SERV_CHAR_NPC
 // constexpr uint32_t model_size       = offsetof(GP_SERV_CHAR_PC, name[0]);
 // constexpr uint32_t name_size        = offsetof(GP_SERV_CHAR_PC, name[0]);
 
+// Player-looking dynamic NPCs (zone:insertDynamicEntity with an equipped look) must deliver their
+// name through the long-name / Name2 layout, which puts it at 0x44 after the 18 bytes of GrapIDTbl
+// data. The short-name slot at 0x34 is not available to them: their gear model IDs live at
+// 0x34-0x43, so a name written there both destroys the gear and reads back as garbage.
+bool usesLongNameLayout(CBaseEntity* PEntity)
+{
+    return PEntity->objtype == TYPE_NPC &&
+           PEntity->isRenamed &&
+           PEntity->look.size == MODEL_EQUIPPED &&
+           PEntity->targid >= 0x700;
+}
+
 std::string getTransportNPCName(CBaseEntity* PEntity)
 {
     bool isElevator = PEntity->look.size == MODEL_ELEVATOR;
@@ -362,8 +374,8 @@ void CEntityUpdatePacket::updateWith(CBaseEntity* PEntity, ENTITYUPDATE type, ui
             {
                 // Equipped-look dynamic NPCs (player-looking): gear model IDs occupy 0x34-0x43
                 // in the look_t already written there. Writing the name at 0x34 would clobber them.
-                // The isRenamed block below handles naming for these entities at 0x44 instead.
-                if (!(PNpc->look.size == MODEL_EQUIPPED && PNpc->targid >= 0x700))
+                // The long-name block below handles naming for these entities at 0x44 instead.
+                if (!usesLongNameLayout(PNpc))
                 {
                     auto name = PNpc->getName();
                     if (PNpc->look.size == MODEL_ELEVATOR || PNpc->look.size == MODEL_SHIP)
@@ -541,9 +553,28 @@ void CEntityUpdatePacket::updateWith(CBaseEntity* PEntity, ENTITYUPDATE type, ui
         }
     }
 
-    // Slightly bigger packet to encompass both name and model on first spawn, and only for dynamic entities.
-    if (type == ENTITY_SPAWN && PEntity->isRenamed && PEntity->look.size == MODEL_EQUIPPED && PEntity->targid >= 0x700)
+    // Slightly bigger packet to encompass both name and model, and only for dynamic entities.
+    //
+    // This has to run for every packet that advertises a name, not just the first spawn. The client
+    // asks for entity details on demand with 0x017 CHARREQ2, which is answered with an
+    // ENTITY_UPDATE carrying UPDATE_ALL_MOB - and UPDATE_ALL_MOB contains UPDATE_NAME, so the
+    // packet sets the Name flag in SendFlg. If we set that flag without laying the name out, the
+    // client reads the name from 0x34, which for these entities holds the head gear model ID: a
+    // head of 0x1000 renders as an empty nameplate and 0x1024 renders as "$". This is the reason a
+    // PlayerNPC spawned inside the player's render distance came up nameless while one that walked
+    // in from outside it did not - the in-view case is the one that draws the CHARREQ2 request.
+    //
+    // usedLongNameLayout_ keeps the layout intact if a later update is merged into this same queued
+    // packet (see CCharEntity::updateEntityPacket), which would otherwise overwrite the 0x18 flag
+    // with loc.p.moving and drop the client back to reading 0x34.
+    const bool longNameLayout = usesLongNameLayout(PEntity) &&
+                                type != ENTITY_DESPAWN &&
+                                (type == ENTITY_SPAWN || (updatemask & UPDATE_NAME) || usedLongNameLayout_);
+
+    if (longNameLayout)
     {
+        usedLongNameLayout_ = true;
+
         this->setSize(0x56);
 
         // Temporarily override UpdateFlags (0x0A) to perform black magic:
@@ -566,47 +597,39 @@ void CEntityUpdatePacket::updateWith(CBaseEntity* PEntity, ENTITYUPDATE type, ui
     }
     // If the entity has been renamed, we have to re-send the name during every update.
     // Otherwise it will revert to it's default name (if applicable).
-    else if (PEntity->isRenamed)
+    //
+    // Equipped-look dynamic NPCs are excluded: the long-name layout needs 0x18 set to 0x01 so the
+    // client reads the name from 0x44, but the UPDATE_POS block above already writes loc.p.moving
+    // (the client's step counter, incremented per tick by CPathFind) to that same offset. Applying
+    // the name layout on every update pins the low byte of that counter to 0x01, so the client sees
+    // the step count stall and then jump, which stalls movement rendering and restarts the run
+    // animation for the whole journey. They are named by the block above instead, which only fires
+    // on spawn and on packets that actually advertise a name - never on a plain position update.
+    else if (PEntity->isRenamed && !usesLongNameLayout(PEntity))
     {
         updatemask |= UPDATE_NAME;
         ref<uint8>(0x0A) |= updatemask;
 
-        auto name      = PEntity->packetName;
-        auto maxLength = std::min<size_t>(name.size(), PacketNameLength);
+        this->setSize(0x48);
 
-        if (PEntity->objtype == TYPE_NPC && PEntity->look.size == MODEL_EQUIPPED && PEntity->targid >= 0x700)
+        auto name       = PEntity->packetName;
+        auto nameOffset = 0x34;
+        auto maxLength  = std::min<size_t>(name.size(), PacketNameLength);
+
+        // Mobs and NPC's targid's live in the range 0-1023
+        if (PEntity->targid < 1024)
         {
-            // Equipped-look dynamic NPC: match the spawn packet layout so gear model IDs at 0x34-0x43
-            // are not overwritten. Name goes at 0x44; 0x18 tells the client to read from there.
-            ref<uint8>(0x0A) |= 0x57;
-            this->setSize(0x56);
-            ref<uint8>(0x18) = 0x01; // client reads long name from 0x44 (same as ENTITY_SPAWN path)
-
-            auto start = buffer_.data() + 0x44;
-            std::memset(start, 0U, 0x56 - 0x44);
-            std::memcpy(start, name.c_str(), maxLength);
+            ref<uint16>(0x34) = 0x01;
+            nameOffset        = 0x35;
         }
-        else
-        {
-            this->setSize(0x48);
 
-            auto nameOffset = 0x34;
+        // Make sure to zero-out the existing name area of the packet
+        auto start = buffer_.data() + nameOffset;
+        auto size  = this->getSize();
+        std::memset(start, 0U, size);
 
-            // Mobs and NPC's targid's live in the range 0-1023
-            if (PEntity->targid < 1024)
-            {
-                ref<uint16>(0x34) = 0x01;
-                nameOffset        = 0x35;
-            }
-
-            // Make sure to zero-out the existing name area of the packet
-            auto start = buffer_.data() + nameOffset;
-            auto size  = this->getSize();
-            std::memset(start, 0U, size);
-
-            // Copy in name
-            std::memcpy(start, name.c_str(), maxLength);
-        }
+        // Copy in name
+        std::memcpy(start, name.c_str(), maxLength);
     }
 
     //  Don't overwrite data for model size and hitbox size from look string on NPCs
