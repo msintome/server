@@ -1193,4 +1193,31 @@ m:addOverride('InteractionGlobal.onZoneOut', function(player, fallbackFn)
     return result
 end)
 
+-----------------------------------
+-- Runtime handles
+--
+-- The bare minimum another module needs to put a character of its own into these crowds and have
+-- it behave like one of them: the prepared zone data, and the standing-slot bookkeeping so it
+-- cannot end up sharing a spot with a PNPC. Used by xi_life_branson.lua.
+--
+-- prepareZone is idempotent and caches, so a caller may invoke it without caring whether the hooks
+-- below have run yet. That matters because module override order is not guaranteed.
+--
+-- releaseSlot and destinationOf read the 'xiLifePoint' and 'xiLifeSlot' local vars, so anything
+-- borrowing them has to use the same two names.
+-----------------------------------
+
+xi.xiLife.runtime =
+{
+    prepareZone     = prepareZone,
+    chooseSlot      = chooseSlot,
+    releaseSlot     = releaseSlot,
+    destinationOf   = destinationOf,
+    watchingPlayers = watchingPlayers,
+
+    stateOf = function(zoneId)
+        return zoneState[zoneId]
+    end,
+}
+
 return m

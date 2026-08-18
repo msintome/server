@@ -141,6 +141,27 @@ so the docs travel with it). Holds the movement fix below; not yet merged back t
 are now live — comment them out again to disable the population system. Zone scripts
 only reload on **map server restart**, unlike NPC/mob scripts.
 
+- **NEW 2026-08-18 — Branson, the recurring face** (branch `claude-branson-part1`).
+  `modules/custom/lua/xi_life_branson.lua`, listed separately in `modules/init.txt`
+  so it can be switched off without touching the crowd system. One fixed character —
+  Hume male, face 0, full MNK Artifact (Temple set, model 66) — spawned into
+  whichever xi_life-enabled city zone the player is in, one per zone, never
+  replaced and never leaving by a zone line. Walks between the same POIs as the
+  anonymous crowd.
+  Greets the player by name within 10 yalms, holds for 15 s re-facing them on a 2 s
+  poll, and breaks off ~2 s after they leave 13 yalms (wider than the entry range,
+  so a player on the boundary does not flicker the greeting on and off). Runs
+  rather than walks away afterwards; 45 s cooldown before the next greeting.
+  Rides on `xi.xiLife.runtime`, a small handle table exported from the bottom of
+  `xi_life.lua` (prepared zone data plus the standing-slot bookkeeping), so he and
+  the crowd can never claim the same slot. He deliberately does **not** set the
+  `xiLife` local var — that is what keeps xi_life's chatter, roadside encounters and
+  stuck watchdog off him. Uses `xiLifePoint` / `xiLifeSlot` because the borrowed
+  slot helpers read those two names.
+  **Unverified in client:** face 0 was chosen as Hume male 1A on the assumption it
+  is the short dark-haired head. Eyeball it and change `BRANSON_FACE` if not — the
+  byte is `(face - 1) * 2` plus 1 for the B variant, valid 0-15.
+
 - **OPEN 2026-08-18 — PlayerNPCs standing above Lower Jeuno's auction house**
   (branch `claude-npc-spacing`). Three attempted fixes have **not** resolved it;
   the mechanism below is a hypothesis that has so far failed to predict the
