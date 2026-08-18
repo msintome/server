@@ -63,6 +63,15 @@ xi.xiLife.customPois =
         { name = 'Maloquedil', kind = 'wander', x = 35.118, y = -0.199, z = 60.354 },
     },
 
+    [239] =
+    {
+        { name = 'Augu-Maugu', kind = 'wander', x = -26.173, y = -2.455, z = -58.818 },
+        { name = 'Luuh_Koplehn', kind = 'wander', x = -93.910, y = -5.097, z = 130.064 },
+        { name = 'Gerun-Garun', kind = 'wander', x = 7.267, y = -7.620, z = 256.316 },
+        { name = 'Finene', kind = 'wander', x = 46.371, y = -7.500, z = 216.384 },
+        { name = 'Florencia', kind = 'wander', x = 105.183, y = -10.853, z = 158.458 },
+    },
+
     [230] =
     {
         { name = 'Phamelise', kind = 'wander', x = 63.980, y = 2.000, z = -8.163 },
