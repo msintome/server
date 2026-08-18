@@ -141,6 +141,28 @@ so the docs travel with it). Holds the movement fix below; not yet merged back t
 are now live — comment them out again to disable the population system. Zone scripts
 only reload on **map server restart**, unlike NPC/mob scripts.
 
+- **OPEN 2026-08-18 — PlayerNPCs standing above Lower Jeuno's auction house**
+  (branch `claude-npc-spacing`). Three attempted fixes have **not** resolved it;
+  the mechanism below is a hypothesis that has so far failed to predict the
+  behaviour, so treat it as unconfirmed rather than as the answer.
+  Hypothesis: slots are validated with `zone:isNavigablePoint`, which picks with a
+  1 yalm vertical extent (`smallPolyPickExt`, `navmesh/navmesh.cpp`), while
+  `pathTo` routes via `findPath` using 5 yalms (`polyPickExt`). Lower Jeuno's
+  auction counters sit at `y -0.101` with structure roughly five yalms above them
+  (**negative y is up**), inside that window, so a route endpoint could snap to the
+  walkway. Tried and insufficient: `zone:getFloorId` equality (reads the *XiMesh*,
+  not the navmesh — the walkway shares a map block with the floor below); probing
+  each slot at two heights overhead and dropping vertically ambiguous ones; a
+  height check on arrival that retires the slot. A stuck watchdog also runs on the
+  encounter tick.
+  **Next step is instrumentation, not another fix.** Log the actual slot
+  coordinates built for zone 245, and the PlayerNPC's real `y` on arrival versus
+  the point's `y`, and confirm from the startup line whether the rings are being
+  pruned at all. If arrivals are landing at the *correct* `y`, the whole vertical
+  theory is wrong and the cause is elsewhere. Falling back to the pre-ring
+  behaviour for auction points (jittered arrival at the counter, no ring) is a
+  known-good escape hatch.
+
 - **RESOLVED 2026-08-15 — "skipping" movement** (branch `claude-skipping-fix`,
   verified in client: they now walk and run with a continuous animation cycle).
   The speed/`speedsub` hypothesis was **wrong** — `GetSpeed()` and `animationSpeed`
