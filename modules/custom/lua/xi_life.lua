@@ -85,6 +85,19 @@ local slotRadius =
 
 local DEFAULT_SLOT_RADIUS = 2.2
 
+-- Overhead probing. pathTo resolves its destination with a 5 yalm vertical pick extent
+-- (polyPickExt, navmesh.cpp) while isNavigablePoint validates with 1 yalm (smallPolyPickExt), so a
+-- slot can pass validation against the floor and still have its route snapped to a walkway above.
+-- Lower Jeuno's auction counters sit at y -0.101 with structure some five yalms overhead, squarely
+-- inside that window. Negative y is up, so these probe upwards; the two heights together cover the
+-- band pathTo can reach. Any slot with a walkable surface overhead is vertically ambiguous and is
+-- dropped rather than risked.
+local OVERHEAD_PROBES = { -2.5, -4.5 }
+
+-- How far a PNPC's arrival may sit from the height of the point it walked to. A clean arrival snaps
+-- to the destination exactly, so anything past this means it ended up on different ground.
+local ARRIVAL_Y_TOLERANCE = 2.0
+
 -- Stuck rescue. A PNPC that stops making progress never reaches onPathComplete, so nothing in the
 -- normal lifecycle can recover it - it stands there for the rest of the session. Watch for the
 -- symptom instead of trusting that every destination is reachable: consecutive ticks with no
@@ -219,16 +232,22 @@ local function buildSlots(zone, point)
         local z     = point.z + (math.sin(angle) * radius)
         local probe = { x = x, y = point.y, z = z }
 
-        -- Two tests, because isNavigablePoint alone is not enough. It answers with a 1 yalm
-        -- vertical pick extent, but pathTo routes with a 5 yalm one (polyPickExt in navmesh.cpp),
-        -- so a slot can validate against the ground and then have its route snapped to a storey
-        -- above. Lower Jeuno's auction house has a walkway directly over the counters and did
-        -- exactly that. getFloorId asks the zone mesh which storey a position belongs to - the
-        -- same question WideScan asks to decide what a player can see - so requiring a match
-        -- rejects a slot whose only surface is upstairs.
+        -- Standable, and on the point's own storey. getFloorId reads the zone mesh rather than the
+        -- navmesh - the same question WideScan asks to decide what a player can see - so it catches
+        -- a slot that belongs to a different map block entirely.
         local usable =
             zone:isNavigablePoint(probe) and
             zone:getFloorId(probe) == floorId
+
+        -- Then refuse anything with walkable ground overhead, which pathTo could snap up to.
+        if usable then
+            for _, height in ipairs(OVERHEAD_PROBES) do
+                if zone:isNavigablePoint({ x = x, y = point.y + height, z = z }) then
+                    usable = false
+                    break
+                end
+            end
+        end
 
         if usable then
             table.insert(slots, { x = x, z = z })
@@ -526,6 +545,21 @@ leave = function(npc, zone, zoneId)
     scheduleReplacement(zone, zoneId)
 end
 
+-- Take a slot out of circulation for the rest of the session. Whatever led a PNPC astray would
+-- catch the next one to choose it, and the one after that, so the slot has to go rather than just
+-- the PNPC standing in it.
+local function retireSlot(npc, zone, zoneId, why)
+    local state   = zoneState[zoneId]
+    local point   = state and state.points[npc:getLocalVar('xiLifePoint')]
+    local slotIdx = npc:getLocalVar('xiLifeSlot')
+
+    if point and slotIdx > 0 and point.slots[slotIdx] then
+        point.slots[slotIdx].bad = true
+        printf('[XI_LIFE] %s: slot %d at %s (%s) retired, %s',
+            zone:getName(), slotIdx, point.name, point.kind, why)
+    end
+end
+
 -- What happens when a PNPC reaches the place it was walking to. Lifted out of the onPathComplete
 -- closure because a trip can also end without the path completing: a PNPC that stopped for a
 -- roadside encounter almost on top of its slot has nowhere left to walk, and arrives from here
@@ -540,6 +574,17 @@ arriveAt = function(npc, zone, zoneId)
 
     local arrived = state.points[npc:getLocalVar('xiLifePoint')]
     local kind    = arrived and arrived.kind or 'exit'
+
+    -- Arriving at the right place is not the same as arriving at the right height. A path whose
+    -- destination got snapped to a surface above resolves as complete, and without this the PNPC
+    -- would settle into a full loiter up there - which is precisely what the stuck watchdog cannot
+    -- see, since it only inspects PNPCs still following a path.
+    if arrived and math.abs(npc:getYPos() - arrived.y) > ARRIVAL_Y_TOLERANCE then
+        retireSlot(npc, zone, zoneId, 'arrival was off by height')
+        leave(npc, zone, zoneId)
+
+        return
+    end
 
     -- Turn and face whatever they came to see - the counter clerk, the crystal, the shopkeeper.
     -- Exits are the exception: a zone line is a doorway rather than a destination, and the PNPC
@@ -794,16 +839,7 @@ end
 -- Blacklisting the slot is the part that matters. Without it the same unreachable spot would catch
 -- the next PNPC to choose it, and the one after that.
 local function rescueStuck(npc, zone, zoneId)
-    local state   = zoneState[zoneId]
-    local point   = state and state.points[npc:getLocalVar('xiLifePoint')]
-    local slotIdx = npc:getLocalVar('xiLifeSlot')
-
-    if point and slotIdx > 0 and point.slots[slotIdx] then
-        point.slots[slotIdx].bad = true
-        printf('[XI_LIFE] %s: slot %d at %s (%s) is unreachable, retired',
-            zone:getName(), slotIdx, point.name, point.kind)
-    end
-
+    retireSlot(npc, zone, zoneId, 'no progress along the path')
     npc:clearPath()
     leave(npc, zone, zoneId)
 end
