@@ -171,12 +171,24 @@ local function jitter(value)
     return value + ((math.random() * 2) - 1) * DEST_JITTER
 end
 
-local function anyPlayerIn(zone)
+-- Players who can actually see the city. Entering a Mog House does not change zone - it is a zone
+-- change to the same zone (0x05e_maprect.cpp), leaving the player standing at their city position
+-- as far as the server is concerned while the client draws a room around them. Such a player is
+-- not an audience for any of this, and must not anchor the zone's timers either.
+local function watchingPlayers(zone)
+    local found = {}
+
     for _, player in pairs(zone:getPlayers()) do
-        return player
+        if not player:inMogHouse() then
+            table.insert(found, player)
+        end
     end
 
-    return nil
+    return found
+end
+
+local function anyPlayerIn(zone)
+    return watchingPlayers(zone)[1]
 end
 
 -----------------------------------
@@ -1013,8 +1025,9 @@ local function speakOnce(zone, zoneId)
     -- line first wasted over half of every firing: 'say' lines only carry within SAY_RANGE, and in
     -- a capital the odds of a randomly chosen PNPC standing that close to the player are slim, so
     -- most ticks produced silence. With no one in earshot, only zone-wide lines are eligible.
-    local nearby = {}
-    for _, player in pairs(zone:getPlayers()) do
+    local audience = watchingPlayers(zone)
+    local nearby   = {}
+    for _, player in ipairs(audience) do
         local dx = player:getXPos() - npc:getXPos()
         local dz = player:getZPos() - npc:getZPos()
 
@@ -1042,9 +1055,9 @@ local function speakOnce(zone, zoneId)
     local text    = fillTokens(line.text, speaker)
     local isShout = line.channel == 'shout'
     local channel = isShout and xi.msg.channel.SHOUT or xi.msg.channel.SAY
-    local heard   = isShout and zone:getPlayers() or nearby
+    local heard   = isShout and audience or nearby
 
-    for _, player in pairs(heard) do
+    for _, player in ipairs(heard) do
         player:printToPlayer(text, channel, speaker.name)
     end
 end
@@ -1104,7 +1117,14 @@ m:addOverride('InteractionGlobal.afterZoneIn', function(player, fallbackFn)
         local zoneId = zone:getID()
         local state  = prepareZone(zone, zoneId)
 
-        if state.enabled then
+        if state.enabled and player:inMogHouse() then
+            -- Walking into a Mog House arrives here, because it is a zone change back into the
+            -- same zone. Tear the population down rather than topping it up: the player is still
+            -- standing in the street server-side, so anything spawned would be pushed to their
+            -- client and parade through the room.
+            state.active = false
+            despawnAll(zone, zoneId)
+        elseif state.enabled then
             state.active = true
             topUpPopulation(zone, zoneId)
 
