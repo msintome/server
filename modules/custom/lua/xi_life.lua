@@ -39,10 +39,17 @@ local AUCTION_LOITER_MS   = 30000
 local HOMEPOINT_LOITER_MS = 15000
 local WANDER_LOITER_MS    = 15000
 
--- Chance a PNPC arriving at a home point warps out rather than loitering and moving on. Home
--- points are the only loiter point in the eleven city zones that have no auction house, so
--- treating them as purely terminal would leave those zones as silent thoroughfares.
-local HOMEPOINT_DEPARTURE_CHANCE = 50
+-- Chance a PNPC arriving at a home point warps out rather than loitering and moving on. Mostly
+-- terminal, since that is what a player at a crystal is usually doing. The quarter that stay are
+-- what keeps the eleven city zones with no auction house from being silent thoroughfares - a home
+-- point is their only loiter point.
+local HOMEPOINT_DEPARTURE_CHANCE = 75
+
+-- A PNPC warping out stands at the crystal a moment first. Arriving and vanishing on the same step
+-- reads as a despawn bug; a beat of stillness reads as someone casting the warp. Spread over a
+-- couple of seconds so a pair arriving together do not blink out on the same frame.
+local HOMEPOINT_WARP_MIN_MS = 3000
+local HOMEPOINT_WARP_MAX_MS = 5000
 
 -- Gap between one PNPC leaving and its replacement arriving.
 local RESPAWN_DELAY_MS = 3000
@@ -59,9 +66,73 @@ local CHATTER_MAX_DELAY_MS = 45000
 -- 'say' lines are muttering, so they only carry if the speaker is close enough to overhear.
 local SAY_RANGE = 20.0
 
--- Yalms of slop on x and z for every destination, so arrivals at a shared point do not stack.
--- y is left alone: nudging it risks putting someone through the floor or off a ledge.
+-- Yalms of slop on x and z, used only when a point has no standing slot free. y is left alone:
+-- nudging it risks putting someone through the floor or off a ledge.
 local DEST_JITTER = 1.5
+
+-- Standing slots. A PNPC does not walk onto the thing it came to see - it claims a spot on a ring
+-- around it, holds that spot against everyone else, and turns to face the middle. Radius is per
+-- kind because the objects differ in size: a home point crystal is a good deal wider than the
+-- counter clerk you queue in front of.
+local SLOT_COUNT = 8
+
+local slotRadius =
+{
+    auction   = 2.0,
+    homepoint = 2.0,
+    wander    = 2.0,
+}
+
+local DEFAULT_SLOT_RADIUS = 2.2
+
+-- Overhead probing. pathTo resolves its destination with a 5 yalm vertical pick extent
+-- (polyPickExt, navmesh.cpp) while isNavigablePoint validates with 1 yalm (smallPolyPickExt), so a
+-- slot can pass validation against the floor and still have its route snapped to a walkway above.
+-- Lower Jeuno's auction counters sit at y -0.101 with structure some five yalms overhead, squarely
+-- inside that window. Negative y is up, so these probe upwards; the two heights together cover the
+-- band pathTo can reach. Any slot with a walkable surface overhead is vertically ambiguous and is
+-- dropped rather than risked.
+local OVERHEAD_PROBES = { -2.5, -4.5 }
+
+-- How far a PNPC's arrival may sit from the height of the point it walked to. A clean arrival snaps
+-- to the destination exactly, so anything past this means it ended up on different ground.
+local ARRIVAL_Y_TOLERANCE = 2.0
+
+-- Stuck rescue. A PNPC that stops making progress never reaches onPathComplete, so nothing in the
+-- normal lifecycle can recover it - it stands there for the rest of the session. Watch for the
+-- symptom instead of trusting that every destination is reachable: consecutive ticks with no
+-- meaningful movement while still nominally following a path.
+local STUCK_MOVE_EPSILON = 0.5
+local STUCK_STRIKES      = 3
+
+-- Points approachable from any angle. Everything else is up against something - a counter has a
+-- wall behind it, a shopkeeper has their stall - so a PNPC should only ever stop on the side it
+-- came in from. The navmesh already rules out most of the bad arc (see buildSlots), but it cannot
+-- know that walking around to the one free spot behind the counter looks absurd even where the
+-- floor is technically walkable.
+local fullCircleKinds =
+{
+    homepoint = true,
+}
+
+-- Roadside encounters. Two PNPCs travelling past each other may stop, turn, and stand talking for
+-- a few seconds before carrying on. Capped at one per trip each, so the same pair cannot bounce
+-- off each other all the way across a city.
+-- The range is a band, not a radius. Below the near edge the two are close enough to be clipping
+-- through each other, which is not a conversation; beyond the far edge they are shouting across
+-- the street. They stop where they stand when the roll lands, so the band is the gap they end up
+-- talking across.
+local ENCOUNTER_TICK_MS  = 2500
+local ENCOUNTER_NEAR     = 2.0
+local ENCOUNTER_FAR      = 5.0
+local ENCOUNTER_HEIGHT   = 3.0
+local ENCOUNTER_CHANCE   = 12
+local ENCOUNTER_MIN_MS   = 5000
+local ENCOUNTER_MAX_MS   = 9000
+
+-- Resuming after an encounter needs somewhere left to walk to. PathTo refuses a destination within
+-- a yalm, so a PNPC stopped almost on top of its slot is treated as having arrived instead.
+local RESUME_MIN_DISTANCE = 2.0
 
 -- A zone needs somewhere to go and somewhere to leave from, or its PNPCs have nothing to do.
 local MIN_POINTS      = 2
@@ -113,12 +184,144 @@ local function jitter(value)
     return value + ((math.random() * 2) - 1) * DEST_JITTER
 end
 
-local function anyPlayerIn(zone)
+-- Players who can actually see the city. Entering a Mog House does not change zone - it is a zone
+-- change to the same zone (0x05e_maprect.cpp), leaving the player standing at their city position
+-- as far as the server is concerned while the client draws a room around them. Such a player is
+-- not an audience for any of this, and must not anchor the zone's timers either.
+local function watchingPlayers(zone)
+    local found = {}
+
     for _, player in pairs(zone:getPlayers()) do
-        return player
+        if not player:inMogHouse() then
+            table.insert(found, player)
+        end
     end
 
-    return nil
+    return found
+end
+
+local function anyPlayerIn(zone)
+    return watchingPlayers(zone)[1]
+end
+
+-----------------------------------
+-- Standing slots
+--
+-- Every point of interest that is not a way out gets a ring of standing positions around it, worked
+-- out once when the zone is prepared. A PNPC heading for a point claims one for the whole journey,
+-- so two of them can never pick the same spot even while both are still walking, and on arrival it
+-- turns to face the middle of the ring - which is the thing it came to see.
+-----------------------------------
+
+-- The ring is filtered against the navmesh, which does most of the work for free. isNavigablePoint
+-- searches with a 0.5 yalm horizontal extent (smallPolyPickExt in navmesh.cpp), tight enough to
+-- tell one side of an auction counter from the other: the counter geometry is baked into the mesh,
+-- so the slots behind it fail and the arc carves itself out without anyone hand-measuring a zone.
+local function buildSlots(zone, point)
+    if point.kind == 'exit' then
+        return {}
+    end
+
+    local radius  = slotRadius[point.kind] or DEFAULT_SLOT_RADIUS
+    local floorId = zone:getFloorId({ x = point.x, y = point.y, z = point.z })
+    local slots   = {}
+
+    for i = 0, SLOT_COUNT - 1 do
+        local angle = (i / SLOT_COUNT) * 2 * math.pi
+        local x     = point.x + (math.cos(angle) * radius)
+        local z     = point.z + (math.sin(angle) * radius)
+        local probe = { x = x, y = point.y, z = z }
+
+        -- Standable, and on the point's own storey. getFloorId reads the zone mesh rather than the
+        -- navmesh - the same question WideScan asks to decide what a player can see - so it catches
+        -- a slot that belongs to a different map block entirely.
+        local usable =
+            zone:isNavigablePoint(probe) and
+            zone:getFloorId(probe) == floorId
+
+        -- Then refuse anything with walkable ground overhead, which pathTo could snap up to.
+        if usable then
+            for _, height in ipairs(OVERHEAD_PROBES) do
+                if zone:isNavigablePoint({ x = x, y = point.y + height, z = z }) then
+                    usable = false
+                    break
+                end
+            end
+        end
+
+        if usable then
+            table.insert(slots, { x = x, z = z })
+        end
+    end
+
+    return slots
+end
+
+-- Pick a free slot, preferring the half of the ring the PNPC is coming in from. Jogging around
+-- behind a stall to stand in the one free spot reads as a bug; stopping on the near side reads as
+-- joining the queue. fromX nil means there is no approach to speak of - a PNPC being spawned in -
+-- so the whole ring is fair game, as it is for the kinds listed in fullCircleKinds.
+--
+-- Returns 0 when nothing is free, which is the caller's cue to fall back to a jittered arrival at
+-- the point itself. A busy auction house should still look busy.
+local function chooseSlot(point, fromX, fromZ)
+    local anyAngle = fullCircleKinds[point.kind] or fromX == nil
+    local nearSide = {}
+    local anySide  = {}
+
+    -- Vector from the point out towards wherever the PNPC currently is. A slot on the approach side
+    -- has a positive dot product with it, which is just 'within 90 degrees of the way they came'.
+    local approachX = (fromX or 0) - point.x
+    local approachZ = (fromZ or 0) - point.z
+
+    for idx, slot in ipairs(point.slots) do
+        if not point.taken[idx] and not slot.bad then
+            table.insert(anySide, idx)
+
+            local dot = ((slot.x - point.x) * approachX) + ((slot.z - point.z) * approachZ)
+            if dot > 0 then
+                table.insert(nearSide, idx)
+            end
+        end
+    end
+
+    if anyAngle then
+        if #anySide == 0 then
+            return 0
+        end
+
+        return anySide[math.random(#anySide)]
+    end
+
+    if #nearSide == 0 then
+        return 0
+    end
+
+    return nearSide[math.random(#nearSide)]
+end
+
+-- Give up the slot a PNPC holds, if it still holds it. The id check matters: a slot released twice
+-- must not evict whoever claimed it in between.
+local function releaseSlot(state, npc)
+    local point   = state and state.points[npc:getLocalVar('xiLifePoint')]
+    local slotIdx = npc:getLocalVar('xiLifeSlot')
+
+    if point and slotIdx > 0 and point.taken[slotIdx] == npc:getID() then
+        point.taken[slotIdx] = nil
+    end
+
+    npc:setLocalVar('xiLifeSlot', 0)
+end
+
+-- Where a PNPC holding this slot should actually stand. Slot positions are fixed, so this can be
+-- recomputed from the two local vars alone and survives an interrupted journey.
+local function destinationOf(point, slotIdx)
+    local slot = slotIdx > 0 and point.slots[slotIdx]
+    if slot then
+        return slot.x, point.y, slot.z
+    end
+
+    return jitter(point.x), point.y, jitter(point.z)
 end
 
 -----------------------------------
@@ -177,7 +380,18 @@ local function prepareZone(zone, zoneId)
             zone:isNavigablePoint({ x = point.x, y = point.y, z = point.z })
 
         if keep then
-            table.insert(points, point)
+            -- Copy rather than reference: the generated table is module-level shared data, and the
+            -- runtime hangs per-zone slot occupancy off these entries.
+            table.insert(points,
+            {
+                name  = point.name,
+                kind  = point.kind,
+                x     = point.x,
+                y     = point.y,
+                z     = point.z,
+                slots = buildSlots(zone, point),
+                taken = {},
+            })
         else
             rejected = rejected + 1
             printf('[XI_LIFE] %s: point off the navmesh, dropped: %s (%s)',
@@ -201,11 +415,17 @@ local function prepareZone(zone, zoneId)
         population = data.population,
         live       = 0,
         active     = false,
+        watch      = {},
     }
 
+    local slotCount = 0
+    for _, point in ipairs(points) do
+        slotCount = slotCount + #point.slots
+    end
+
     if enabled then
-        printf('[XI_LIFE] %s: %d points (%d dropped), population %d',
-            zone:getName(), #points, rejected, data.population)
+        printf('[XI_LIFE] %s: %d points (%d dropped), %d standing slots, population %d',
+            zone:getName(), #points, rejected, slotCount, data.population)
     else
         printf('[XI_LIFE] %s: disabled, only %d usable points and %d ways to leave',
             zone:getName(), #points, exits)
@@ -220,6 +440,7 @@ end
 
 local spawnOne
 local walkToRandomPoint
+local arriveAt
 local leave
 
 -- Sends the PNPC somewhere it is not already standing, and remembers which point it chose so
@@ -275,11 +496,24 @@ walkToRandomPoint = function(npc, zone, zoneId)
     local destIdx     = choices[math.random(#choices)]
     local destination = state.points[destIdx]
 
+    -- Give up the spot they have been standing in before claiming the next, or a PNPC crossing the
+    -- city would hold two slots for the length of the walk.
+    releaseSlot(state, npc)
+
+    local slotIdx = chooseSlot(destination, npc:getXPos(), npc:getZPos())
+    if slotIdx > 0 then
+        destination.taken[slotIdx] = npc:getID()
+    end
+
     npc:setLocalVar('xiLifePoint', destIdx)
-    npc:pathTo(
-        jitter(destination.x), destination.y, jitter(destination.z),
-        xi.path.flag.WALLHACK + xi.path.flag.SCRIPT
-    )
+    npc:setLocalVar('xiLifeSlot', slotIdx)
+
+    -- One roadside encounter per trip, so a pair heading the same way cannot keep stopping.
+    npc:setLocalVar('xiLifeMet', 0)
+
+    local x, y, z = destinationOf(destination, slotIdx)
+
+    npc:pathTo(x, y, z, xi.path.flag.WALLHACK + xi.path.flag.SCRIPT)
 end
 
 local function scheduleReplacement(zone, zoneId)
@@ -301,6 +535,7 @@ end
 leave = function(npc, zone, zoneId)
     local state = zoneState[zoneId]
 
+    releaseSlot(state, npc)
     npc:setStatus(xi.status.DISAPPEAR)
 
     if state then
@@ -308,6 +543,94 @@ leave = function(npc, zone, zoneId)
     end
 
     scheduleReplacement(zone, zoneId)
+end
+
+-- Take a slot out of circulation for the rest of the session. Whatever led a PNPC astray would
+-- catch the next one to choose it, and the one after that, so the slot has to go rather than just
+-- the PNPC standing in it.
+local function retireSlot(npc, zone, zoneId, why)
+    local state   = zoneState[zoneId]
+    local point   = state and state.points[npc:getLocalVar('xiLifePoint')]
+    local slotIdx = npc:getLocalVar('xiLifeSlot')
+
+    if point and slotIdx > 0 and point.slots[slotIdx] then
+        point.slots[slotIdx].bad = true
+        printf('[XI_LIFE] %s: slot %d at %s (%s) retired, %s',
+            zone:getName(), slotIdx, point.name, point.kind, why)
+    end
+end
+
+-- What happens when a PNPC reaches the place it was walking to. Lifted out of the onPathComplete
+-- closure because a trip can also end without the path completing: a PNPC that stopped for a
+-- roadside encounter almost on top of its slot has nowhere left to walk, and arrives from here
+-- instead.
+arriveAt = function(npc, zone, zoneId)
+    local state = zoneState[zoneId]
+    if not state or not state.active then
+        leave(npc, zone, zoneId)
+
+        return
+    end
+
+    local arrived = state.points[npc:getLocalVar('xiLifePoint')]
+    local kind    = arrived and arrived.kind or 'exit'
+
+    -- Arriving at the right place is not the same as arriving at the right height. A path whose
+    -- destination got snapped to a surface above resolves as complete, and without this the PNPC
+    -- would settle into a full loiter up there - which is precisely what the stuck watchdog cannot
+    -- see, since it only inspects PNPCs still following a path.
+    if arrived and math.abs(npc:getYPos() - arrived.y) > ARRIVAL_Y_TOLERANCE then
+        retireSlot(npc, zone, zoneId, 'arrival was off by height')
+        leave(npc, zone, zoneId)
+
+        return
+    end
+
+    -- Turn and face whatever they came to see - the counter clerk, the crystal, the shopkeeper.
+    -- Exits are the exception: a zone line is a doorway rather than a destination, and the PNPC
+    -- despawns on reaching one anyway. lookAt sets UPDATE_POS, which is the safe way to move a
+    -- dynamic NPC's rotation; it is a no-op if they somehow ended up on top of the point.
+    if arrived and kind ~= 'exit' then
+        npc:lookAt(arrived.x, arrived.y, arrived.z)
+    end
+
+    if kind == 'auction' then
+        npc:timer(AUCTION_LOITER_MS, function(n)
+            walkToRandomPoint(n, zone, zoneId)
+        end)
+
+        return
+    end
+
+    -- Points added in game with !addnpcpoi. Somewhere to stand, never a way out.
+    if kind == 'wander' then
+        npc:timer(WANDER_LOITER_MS, function(n)
+            walkToRandomPoint(n, zone, zoneId)
+        end)
+
+        return
+    end
+
+    -- Home points are both a place to stand and a way out, so roll for which this is.
+    if kind == 'homepoint' then
+        if math.random(100) > HOMEPOINT_DEPARTURE_CHANCE then
+            npc:timer(HOMEPOINT_LOITER_MS, function(n)
+                walkToRandomPoint(n, zone, zoneId)
+            end)
+
+            return
+        end
+
+        npc:timer(math.random(HOMEPOINT_WARP_MIN_MS, HOMEPOINT_WARP_MAX_MS), function(n)
+            leave(n, zone, zoneId)
+        end)
+
+        return
+    end
+
+    -- Zone lines, which are the only other way out. These do vanish on contact: that is exactly
+    -- what walking through a zone line looks like from the outside.
+    leave(npc, zone, zoneId)
 end
 
 spawnOne = function(zone, zoneId)
@@ -324,14 +647,20 @@ spawnOne = function(zone, zoneId)
     local startPoint = state.points[startIdx]
     local character  = xi.xiLife.appearance.randomCharacter()
 
+    -- No approach direction to speak of for someone being placed rather than arriving, so the whole
+    -- ring is eligible. The slot is only marked taken once the entity exists and has an id, a few
+    -- lines down - nothing can run in between to steal it.
+    local startSlot = chooseSlot(startPoint, nil, nil)
+    local x, y, z   = destinationOf(startPoint, startSlot)
+
     local npc = zone:insertDynamicEntity(
     {
         objtype  = xi.objType.NPC,
         name     = character.name,
         look     = character.look,
-        x        = jitter(startPoint.x),
-        y        = startPoint.y,
-        z        = jitter(startPoint.z),
+        x        = x,
+        y        = y,
+        z        = z,
         rotation = math.random(0, 255),
 
         -- namevis 0, not VIS_ICON: the (I) icon marks a talkable NPC and gives the game away.
@@ -339,43 +668,7 @@ spawnOne = function(zone, zoneId)
         releaseIdOnDisappear = true,
 
         onPathComplete = function(pnpc)
-            local currentState = zoneState[zoneId]
-            if not currentState or not currentState.active then
-                leave(pnpc, zone, zoneId)
-
-                return
-            end
-
-            local arrived = currentState.points[pnpc:getLocalVar('xiLifePoint')]
-            local kind    = arrived and arrived.kind or 'exit'
-
-            if kind == 'auction' then
-                pnpc:timer(AUCTION_LOITER_MS, function(n)
-                    walkToRandomPoint(n, zone, zoneId)
-                end)
-
-                return
-            end
-
-            -- Points added in game with !addnpcpoi. Somewhere to stand, never a way out.
-            if kind == 'wander' then
-                pnpc:timer(WANDER_LOITER_MS, function(n)
-                    walkToRandomPoint(n, zone, zoneId)
-                end)
-
-                return
-            end
-
-            -- Home points are both a place to stand and a way out, so roll for which this is.
-            if kind == 'homepoint' and math.random(100) > HOMEPOINT_DEPARTURE_CHANCE then
-                pnpc:timer(HOMEPOINT_LOITER_MS, function(n)
-                    walkToRandomPoint(n, zone, zoneId)
-                end)
-
-                return
-            end
-
-            leave(pnpc, zone, zoneId)
+            arriveAt(pnpc, zone, zoneId)
         end,
     })
 
@@ -387,8 +680,18 @@ spawnOne = function(zone, zoneId)
 
     npc:initNpcAi()
     npc:setLocalVar('xiLifePoint', startIdx)
+    npc:setLocalVar('xiLifeSlot', startSlot)
     npc:setLocalVar('xiLife', 1)
     npc:setLocalVar('xiLifeJob', (character.job and jobIndex[character.job]) or 0)
+
+    if startSlot > 0 then
+        startPoint.taken[startSlot] = npc:getID()
+    end
+
+    if startPoint.kind ~= 'exit' then
+        npc:lookAt(startPoint.x, startPoint.y, startPoint.z)
+    end
+
     npc:timer(ARRIVAL_PAUSE_MS, function(n)
         walkToRandomPoint(n, zone, zoneId)
     end)
@@ -428,7 +731,232 @@ local function despawnAll(zone, zoneId)
         end
     end
 
-    state.live = 0
+    -- Hand every slot back. Wiping the population without this would leave every ring permanently
+    -- full, and the next visit would find nowhere to stand anywhere in the zone.
+    for _, point in ipairs(state.points or {}) do
+        point.taken = {}
+    end
+
+    state.watch = {}
+    state.live  = 0
+end
+
+-----------------------------------
+-- Roadside encounters
+--
+-- Two PNPCs walking past each other stop, turn to face one another, stand there a few seconds and
+-- then carry on. Nothing is said - the point is the body language.
+--
+-- Driven by a per-zone tick rather than anything per-NPC. The population caps at 22, so the worst
+-- case is a couple of hundred distance checks every few seconds, and one timer per zone beats one
+-- timer per PNPC. clearPath does not fire onPathComplete (CPathFind::Clear just empties the point
+-- list), so stopping a PNPC this way has no effect on its lifecycle - it simply stands still until
+-- the resume timer sends it on.
+-----------------------------------
+
+local scheduleEncounters
+
+-- Only PNPCs actually on the move, and only those that have not already stopped once this trip.
+local function travellingPNPCs(zone)
+    local found = {}
+
+    for _, npc in pairs(zone:getNPCs()) do
+        local eligible =
+            npc:getLocalVar('xiLife') == 1 and
+            npc:getStatus() ~= xi.status.DISAPPEAR and
+            npc:getLocalVar('xiLifeMet') == 0 and
+            npc:isFollowingPath()
+
+        if eligible then
+            table.insert(found, npc)
+        end
+    end
+
+    return found
+end
+
+-- Pick the journey back up where it was interrupted. The destination is recomputed from the point
+-- and slot local vars rather than remembered, since local vars are integers and a position is not.
+local function resumeTravel(npc, zone, zoneId)
+    local state = zoneState[zoneId]
+    if not state or not state.active then
+        leave(npc, zone, zoneId)
+
+        return
+    end
+
+    local point = state.points[npc:getLocalVar('xiLifePoint')]
+    if not point then
+        leave(npc, zone, zoneId)
+
+        return
+    end
+
+    local x, y, z = destinationOf(point, npc:getLocalVar('xiLifeSlot'))
+    local dx      = x - npc:getXPos()
+    local dz      = z - npc:getZPos()
+
+    -- Stopped near enough that PathTo would refuse the destination and strand them with no
+    -- onPathComplete to ever move them on. Treat the stop as the arrival it effectively was.
+    if ((dx * dx) + (dz * dz)) < (RESUME_MIN_DISTANCE * RESUME_MIN_DISTANCE) then
+        arriveAt(npc, zone, zoneId)
+
+        return
+    end
+
+    npc:pathTo(x, y, z, xi.path.flag.WALLHACK + xi.path.flag.SCRIPT)
+end
+
+local function startEncounter(zone, zoneId, one, two)
+    -- Stop both before either turns, so each faces where the other actually came to rest.
+    one:clearPath()
+    two:clearPath()
+
+    one:lookAt(two:getXPos(), two:getYPos(), two:getZPos())
+    two:lookAt(one:getXPos(), one:getYPos(), one:getZPos())
+
+    one:setLocalVar('xiLifeMet', 1)
+    two:setLocalVar('xiLifeMet', 1)
+
+    -- One duration for the pair, or one of them walks off mid-conversation.
+    local duration = math.random(ENCOUNTER_MIN_MS, ENCOUNTER_MAX_MS)
+
+    one:timer(duration, function(n)
+        resumeTravel(n, zone, zoneId)
+    end)
+
+    two:timer(duration, function(n)
+        resumeTravel(n, zone, zoneId)
+    end)
+end
+
+-- Retire the slot that led them here before removing them. Re-routing instead would be gentler to
+-- watch, but a PNPC stuck in scenery is often somewhere nothing can path out of, and it would just
+-- stall again; despawning is the recovery that always works, and scheduleReplacement puts someone
+-- fresh back into the zone. Standing perfectly still and then vanishing reads as a player logging
+-- out, which is the least remarkable thing it could look like.
+--
+-- Blacklisting the slot is the part that matters. Without it the same unreachable spot would catch
+-- the next PNPC to choose it, and the one after that.
+local function rescueStuck(npc, zone, zoneId)
+    retireSlot(npc, zone, zoneId, 'no progress along the path')
+    npc:clearPath()
+    leave(npc, zone, zoneId)
+end
+
+-- Compares each travelling PNPC against where it stood last tick. Anyone stopped for an encounter
+-- has had their path cleared, so isFollowingPath already excludes them and they cannot be mistaken
+-- for stuck.
+local function stuckTick(zone, zoneId)
+    local state = zoneState[zoneId]
+    if not state then
+        return
+    end
+
+    local seen = {}
+
+    for _, npc in pairs(zone:getNPCs()) do
+        if npc:getLocalVar('xiLife') == 1 and npc:isFollowingPath() then
+            local id    = npc:getID()
+            local x     = npc:getXPos()
+            local z     = npc:getZPos()
+            local watch = state.watch[id]
+
+            seen[id] = true
+
+            local moved =
+                not watch or
+                math.abs(x - watch.x) >= STUCK_MOVE_EPSILON or
+                math.abs(z - watch.z) >= STUCK_MOVE_EPSILON
+
+            if moved then
+                state.watch[id] = { x = x, z = z, strikes = 0 }
+            else
+                watch.strikes = watch.strikes + 1
+
+                if watch.strikes >= STUCK_STRIKES then
+                    state.watch[id] = nil
+                    seen[id]        = nil
+                    rescueStuck(npc, zone, zoneId)
+                end
+            end
+        end
+    end
+
+    -- Forget anyone who has arrived, left, or stopped to talk, so ids cannot accumulate across a
+    -- long session.
+    for id in pairs(state.watch) do
+        if not seen[id] then
+            state.watch[id] = nil
+        end
+    end
+end
+
+local function encounterTick(zone, zoneId)
+    local walkers = travellingPNPCs(zone)
+    local paired  = {}
+
+    for i = 1, #walkers - 1 do
+        if not paired[i] then
+            for j = i + 1, #walkers do
+                local dx = walkers[i]:getXPos() - walkers[j]:getXPos()
+                local dy = walkers[i]:getYPos() - walkers[j]:getYPos()
+                local dz = walkers[i]:getZPos() - walkers[j]:getZPos()
+
+                -- Height matters in a city built in layers. Two PNPCs on different tiers of Jeuno
+                -- can be a few yalms apart on the map and nowhere near each other in the world.
+                local flat  = (dx * dx) + (dz * dz)
+                local close =
+                    flat >= (ENCOUNTER_NEAR * ENCOUNTER_NEAR) and
+                    flat <= (ENCOUNTER_FAR * ENCOUNTER_FAR) and
+                    math.abs(dy) <= ENCOUNTER_HEIGHT
+
+                if not paired[j] and close and math.random(100) <= ENCOUNTER_CHANCE then
+                    paired[i] = true
+                    paired[j] = true
+                    startEncounter(zone, zoneId, walkers[i], walkers[j])
+
+                    break
+                end
+            end
+        end
+    end
+end
+
+-- Same generation guard as the chatter loop below: the tick is anchored to a player's timers, so
+-- it dies with them, and afterZoneIn restarts it unconditionally. Bumping the generation retires
+-- whatever was still queued from a previous visit rather than letting two ticks run at once.
+scheduleEncounters = function(zone, zoneId, generation)
+    local state = zoneState[zoneId]
+    if not state or not state.active then
+        return
+    end
+
+    if generation == nil then
+        state.encounterGeneration = (state.encounterGeneration or 0) + 1
+        generation = state.encounterGeneration
+    elseif generation ~= state.encounterGeneration then
+        return
+    end
+
+    local player = anyPlayerIn(zone)
+    if not player then
+        return
+    end
+
+    player:timer(ENCOUNTER_TICK_MS, function(_)
+        scheduleEncounters(zone, zoneId, generation)
+
+        local ok, err = pcall(encounterTick, zone, zoneId)
+        if not ok then
+            printf('[XI_LIFE] encounter error in %s: %s', zone:getName(), tostring(err))
+        end
+
+        local movedOk, movedErr = pcall(stuckTick, zone, zoneId)
+        if not movedOk then
+            printf('[XI_LIFE] stuck check error in %s: %s', zone:getName(), tostring(movedErr))
+        end
+    end)
 end
 
 -----------------------------------
@@ -533,8 +1061,9 @@ local function speakOnce(zone, zoneId)
     -- line first wasted over half of every firing: 'say' lines only carry within SAY_RANGE, and in
     -- a capital the odds of a randomly chosen PNPC standing that close to the player are slim, so
     -- most ticks produced silence. With no one in earshot, only zone-wide lines are eligible.
-    local nearby = {}
-    for _, player in pairs(zone:getPlayers()) do
+    local audience = watchingPlayers(zone)
+    local nearby   = {}
+    for _, player in ipairs(audience) do
         local dx = player:getXPos() - npc:getXPos()
         local dz = player:getZPos() - npc:getZPos()
 
@@ -562,9 +1091,9 @@ local function speakOnce(zone, zoneId)
     local text    = fillTokens(line.text, speaker)
     local isShout = line.channel == 'shout'
     local channel = isShout and xi.msg.channel.SHOUT or xi.msg.channel.SAY
-    local heard   = isShout and zone:getPlayers() or nearby
+    local heard   = isShout and audience or nearby
 
-    for _, player in pairs(heard) do
+    for _, player in ipairs(heard) do
         player:printToPlayer(text, channel, speaker.name)
     end
 end
@@ -624,13 +1153,21 @@ m:addOverride('InteractionGlobal.afterZoneIn', function(player, fallbackFn)
         local zoneId = zone:getID()
         local state  = prepareZone(zone, zoneId)
 
-        if state.enabled then
+        if state.enabled and player:inMogHouse() then
+            -- Walking into a Mog House arrives here, because it is a zone change back into the
+            -- same zone. Tear the population down rather than topping it up: the player is still
+            -- standing in the street server-side, so anything spawned would be pushed to their
+            -- client and parade through the room.
+            state.active = false
+            despawnAll(zone, zoneId)
+        elseif state.enabled then
             state.active = true
             topUpPopulation(zone, zoneId)
 
             -- Always restart. The generation counter retires whatever was queued before, so this
             -- cannot double the rate, and it recovers a chain that died with a player's timers.
             scheduleChatter(zone, zoneId)
+            scheduleEncounters(zone, zoneId)
         end
     end
 
