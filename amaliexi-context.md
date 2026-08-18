@@ -158,9 +158,11 @@ only reload on **map server restart**, unlike NPC/mob scripts.
   `xiLife` local var — that is what keeps xi_life's chatter, roadside encounters and
   stuck watchdog off him. Uses `xiLifePoint` / `xiLifeSlot` because the borrowed
   slot helpers read those two names.
-  **Unverified in client:** face 0 was chosen as Hume male 1A on the assumption it
-  is the short dark-haired head. Eyeball it and change `BRANSON_FACE` if not — the
-  byte is `(face - 1) * 2` plus 1 for the B variant, valid 0-15.
+  **Verified in client 2026-08-18:** face 0 (Hume male 1A) reads as the dark-haired
+  head, the Temple set renders as a full AF1 monk, and he stops to speak when the
+  player passes. Merged to `xilife` as 66c64767a0. If a different head is ever
+  wanted, `BRANSON_FACE` is the only knob — the byte is `(face - 1) * 2` plus 1 for
+  the B variant, valid 0-15.
 
 - **OPEN 2026-08-18 — PlayerNPCs standing above Lower Jeuno's auction house**
   (branch `claude-npc-spacing`). Three attempted fixes have **not** resolved it;
