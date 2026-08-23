@@ -7,11 +7,11 @@
 -- standing in it. He never leaves through a zone line and is never replaced, so running into him in
 -- Bastok an hour after seeing him in Jeuno is the point.
 --
--- His one trick is that he notices the player. Walk within GREET_RANGE and he stops dead, turns,
--- greets them by name, and holds that for GREET_DURATION - re-facing them on every tick, so he
--- tracks the player rather than staring at where they used to be. He breaks off early if the player
--- walks away, and runs rather than walks when he does move on, which reads as someone who stopped
--- to say hello and is now late for something.
+-- His one trick is that he notices the player. Walk within GREET_RANGE and he stops dead, turns to
+-- face them, waves, and greets them by name, then holds that for GREET_DURATION - re-facing them on
+-- every tick, so he tracks the player rather than staring at where they used to be. He breaks off
+-- early if the player walks away, and runs rather than walks when he does move on, which reads as
+-- someone who stopped to say hello and is now late for something.
 --
 -- He rides on xi_life's prepared zone data through xi.xiLife.runtime: the same navmesh-validated
 -- points, and the same standing-slot bookkeeping, so he and the anonymous crowd can never claim the
@@ -78,6 +78,10 @@ local GREET_HEIGHT = 4.0
 -- player turns their back.
 local GREET_DURATION     = 15
 local PLAYER_LEFT_GRACE  = 2
+
+-- Gap between him coming to a stop facing the player and the wave that follows it. Long enough for
+-- the rotation to have reached the client and played out, short enough to still read as one motion.
+local WAVE_DELAY_MS = 800
 
 -- Quiet period after a greeting before he will start another. Without it, a player who simply
 -- stands still would be greeted again the moment he had run far enough away to come back.
@@ -342,16 +346,41 @@ local function startGreeting(npc, zone, zoneId, player)
     npc:clearPath()
     npc:lookAt(player:getXPos(), player:getYPos(), player:getZPos())
 
-    -- Retires the loiter or arrival timer that was pending, so it cannot fire mid-greeting.
-    newTrip(npc)
+    -- Retires the loiter or arrival timer that was pending, so it cannot fire mid-greeting. The
+    -- number it returns is what the wave below checks itself against.
+    local trip = newTrip(npc)
 
     npc:setLocalVar('bransonMode', MODE_GREETING)
     npc:setLocalVar('bransonUntil', GetSystemTime() + GREET_DURATION)
     npc:setLocalVar('bransonLeft', 0)
 
-    local line = string.format('Hey %s! %s', player:getName(), greetings[math.random(#greetings)])
+    -- Stop, turn, then wave - in that order, with a beat in between. The turn is a rotation change
+    -- riding out on the next entity update, so firing the emote in the same instant would have him
+    -- waving while still swinging round to face the player. The spoken line goes with the wave
+    -- rather than the turn, so the whole greeting lands as one gesture once he is actually looking
+    -- at them.
+    npc:timer(WAVE_DELAY_MS, function(n)
+        if n:getLocalVar('bransonTrip') ~= trip or n:getLocalVar('bransonMode') ~= MODE_GREETING then
+            return
+        end
 
-    player:printToPlayer(line, xi.msg.channel.SAY, BRANSON_NAME)
+        -- Look the player up again rather than closing over the one who triggered this. The timer
+        -- lives on Branson, not on them, so it outlives their zoning out or logging off in the gap,
+        -- and a captured entity would be a stale pointer by the time it fired. Nobody in range any
+        -- more means the greeting has already fallen apart; the next tick will end it properly.
+        local target = nearestPlayer(n, zone, GREET_BREAK_RANGE)
+        if not target then
+            return
+        end
+
+        -- MOTION, not ALL: the client would otherwise print its own "Branson waves" line on top of
+        -- what he is already saying. The animation is the half worth having.
+        n:sendEmote(target, xi.emote.WAVE, xi.emoteMode.MOTION, false)
+
+        local line = string.format('Hey %s! %s', target:getName(), greetings[math.random(#greetings)])
+
+        target:printToPlayer(line, xi.msg.channel.SAY, BRANSON_NAME)
+    end)
 end
 
 local function endGreeting(npc, zone, zoneId)

@@ -148,8 +148,10 @@ only reload on **map server restart**, unlike NPC/mob scripts.
   whichever xi_life-enabled city zone the player is in, one per zone, never
   replaced and never leaving by a zone line. Walks between the same POIs as the
   anonymous crowd.
-  Greets the player by name within 10 yalms, holds for 15 s re-facing them on a 2 s
-  poll, and breaks off ~2 s after they leave 13 yalms (wider than the entry range,
+  Greets the player by name within 10 yalms: stops, turns, then waves 800 ms later
+  (`WAVE_DELAY_MS`) so the rotation has reached the client before the emote plays,
+  with the spoken line riding along with the wave. Holds for 15 s re-facing them on
+  a 2 s poll, and breaks off ~2 s after they leave 13 yalms (wider than the entry range,
   so a player on the boundary does not flicker the greeting on and off). Runs
   rather than walks away afterwards; 45 s cooldown before the next greeting.
   Rides on `xi.xiLife.runtime`, a small handle table exported from the bottom of
