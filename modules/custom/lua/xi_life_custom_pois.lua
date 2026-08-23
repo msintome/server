@@ -38,6 +38,24 @@ xi.xiLife.customPois =
         { name = 'Bhoyu_Halpatacco', kind = 'exit', x = -14.906, y = -5.000, z = -14.332 },
     },
 
+    [249] =
+    {
+        { name = 'Gorpa-Masorpa', kind = 'wander', x = -27.584, y = -15.998, z = 52.565 },
+        { name = 'Maximin', kind = 'wander', x = -0.860, y = -16.003, z = 73.526 },
+        { name = 'Porter_Moogle', kind = 'wander', x = 24.000, y = -16.000, z = 60.000 },
+        { name = 'Amalanbraux', kind = 'wander', x = 36.563, y = -16.047, z = 84.548 },
+        { name = 'Felisa', kind = 'wander', x = 45.441, y = -7.999, z = 39.381 },
+        { name = 'Pekuku', kind = 'wander', x = 4.701, y = -7.857, z = 39.627 },
+        { name = 'Orlando', kind = 'wander', x = -37.268, y = -8.000, z = 58.047 },
+        { name = 'Panoru-Kanoru', kind = 'wander', x = 5.241, y = -4.035, z = 93.891 },
+    },
+
+    [243] =
+    {
+        { name = 'Magian_Moogle_Green', kind = 'wander', x = -4.558, y = 2.451, z = 111.306 },
+        { name = 'Survival_Guide', kind = 'exit', x = 43.000, y = 10.000, z = -69.000 },
+    },
+
     [87] =
     {
         { name = 'Magdalena', kind = 'wander', x = -281.566, y = -11.999, z = -41.420 },
@@ -55,13 +73,20 @@ xi.xiLife.customPois =
         { name = 'Nekha_Shachaba', kind = 'wander', x = -63.814, y = 0.000, z = 68.030 },
     },
 
-    [245] =
+    [240] =
     {
-        { name = 'Boisterous_Jackal', kind = 'wander', x = -26.250, y = 0.000, z = -16.400 },
-        { name = 'Nantoto', kind = 'wander', x = -46.399, y = 0.000, z = -49.532 },
-        { name = 'Shashan-Mishan', kind = 'wander', x = -113.449, y = 0.000, z = -167.358 },
-        { name = 'Amhu_Sabaroleka', kind = 'wander', x = -22.153, y = -6.100, z = -87.616 },
-        { name = 'Sweepstox', kind = 'wander', x = 14.700, y = 0.000, z = 8.480 },
+        { name = 'Martin', kind = 'wander', x = 202.824, y = -6.249, z = 126.393 },
+        { name = 'Synergy_Engineer', kind = 'wander', x = 13.000, y = -4.500, z = 122.000 },
+        { name = 'Lebondur', kind = 'wander', x = -79.849, y = -4.999, z = 145.154 },
+        { name = 'HomePoint#1', kind = 'exit', x = -188.000, y = -4.000, z = 101.000 },
+    },
+
+    [94] =
+    {
+        { name = 'Kristen', kind = 'wander', x = 2.195, y = -1.000, z = 60.296 },
+        { name = 'Dhea_Prandoleh', kind = 'wander', x = 3.167, y = -1.000, z = 15.545 },
+        { name = 'Prucco-Lurucco', kind = 'wander', x = 140.772, y = -2.499, z = 132.942 },
+        { name = 'Pelsey-Holsey', kind = 'wander', x = 119.755, y = -3.500, z = 209.754 },
     },
 
     [231] =
@@ -72,16 +97,13 @@ xi.xiLife.customPois =
         { name = 'Maloquedil', kind = 'wander', x = 35.118, y = -0.199, z = 60.354 },
     },
 
-    [249] =
+    [239] =
     {
-        { name = 'Gorpa-Masorpa', kind = 'wander', x = -27.584, y = -15.998, z = 52.565 },
-        { name = 'Maximin', kind = 'wander', x = -0.860, y = -16.003, z = 73.526 },
-        { name = 'Porter_Moogle', kind = 'wander', x = 24.000, y = -16.000, z = 60.000 },
-        { name = 'Amalanbraux', kind = 'wander', x = 36.563, y = -16.047, z = 84.548 },
-        { name = 'Felisa', kind = 'wander', x = 45.441, y = -7.999, z = 39.381 },
-        { name = 'Pekuku', kind = 'wander', x = 4.701, y = -7.857, z = 39.627 },
-        { name = 'Orlando', kind = 'wander', x = -37.268, y = -8.000, z = 58.047 },
-        { name = 'Panoru-Kanoru', kind = 'wander', x = 5.241, y = -4.035, z = 93.891 },
+        { name = 'Augu-Maugu', kind = 'wander', x = -26.173, y = -2.455, z = -58.818 },
+        { name = 'Luuh_Koplehn', kind = 'wander', x = -93.910, y = -5.097, z = 130.064 },
+        { name = 'Gerun-Garun', kind = 'wander', x = 7.267, y = -7.620, z = 256.316 },
+        { name = 'Finene', kind = 'wander', x = 46.371, y = -7.500, z = 216.384 },
+        { name = 'Florencia', kind = 'wander', x = 105.183, y = -10.853, z = 158.458 },
     },
 
     [230] =
@@ -100,12 +122,13 @@ xi.xiLife.customPois =
         { name = 'Brave_Wolf', kind = 'wander', x = -10.026, y = 7.999, z = 81.816 },
     },
 
-    [240] =
+    [245] =
     {
-        { name = 'Martin', kind = 'wander', x = 202.824, y = -6.249, z = 126.393 },
-        { name = 'Synergy_Engineer', kind = 'wander', x = 13.000, y = -4.500, z = 122.000 },
-        { name = 'Lebondur', kind = 'wander', x = -79.849, y = -4.999, z = 145.154 },
-        { name = 'HomePoint#1', kind = 'exit', x = -188.000, y = -4.000, z = 101.000 },
+        { name = 'Boisterous_Jackal', kind = 'wander', x = -26.250, y = 0.000, z = -16.400 },
+        { name = 'Nantoto', kind = 'wander', x = -46.399, y = 0.000, z = -49.532 },
+        { name = 'Shashan-Mishan', kind = 'wander', x = -113.449, y = 0.000, z = -167.358 },
+        { name = 'Amhu_Sabaroleka', kind = 'wander', x = -22.153, y = -6.100, z = -87.616 },
+        { name = 'Sweepstox', kind = 'wander', x = 14.700, y = 0.000, z = 8.480 },
     },
 
     [248] =
@@ -118,13 +141,14 @@ xi.xiLife.customPois =
         { name = 'Explorer_Moogle', kind = 'wander', x = 10.410, y = -14.558, z = 62.831 },
     },
 
-    [239] =
+    [80] =
     {
-        { name = 'Augu-Maugu', kind = 'wander', x = -26.173, y = -2.455, z = -58.818 },
-        { name = 'Luuh_Koplehn', kind = 'wander', x = -93.910, y = -5.097, z = 130.064 },
-        { name = 'Gerun-Garun', kind = 'wander', x = 7.267, y = -7.620, z = 256.316 },
-        { name = 'Finene', kind = 'wander', x = 46.371, y = -7.500, z = 216.384 },
-        { name = 'Florencia', kind = 'wander', x = 105.183, y = -10.853, z = 158.458 },
+        { name = 'Elnonde', kind = 'wander', x = 85.644, y = 1.999, z = -0.122 },
+        { name = 'Rongelouts_N_Distaud', kind = 'wander', x = 0.000, y = 1.999, z = -22.006 },
+        { name = 'Contie', kind = 'wander', x = 138.289, y = 0.000, z = 59.149 },
+        { name = 'Wyatt', kind = 'wander', x = 124.017, y = 0.000, z = 84.169 },
+        { name = 'Raustigne', kind = 'wander', x = 3.979, y = -1.999, z = 44.456 },
+        { name = 'Eauvague_TK', kind = 'exit', x = 105.163, y = 0.000, z = -52.980 },
     },
 
 }
