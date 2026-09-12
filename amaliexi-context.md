@@ -144,16 +144,28 @@ only reload on **map server restart**, unlike NPC/mob scripts.
 - **NEW 2026-08-18 — Branson, the recurring face** (branch `claude-branson-part1`).
   `modules/custom/lua/xi_life_branson.lua`, listed separately in `modules/init.txt`
   so it can be switched off without touching the crowd system. One fixed character —
-  Hume male, face 0, full MNK Artifact (Temple set, model 66) — spawned into
-  whichever xi_life-enabled city zone the player is in, one per zone, never
-  replaced and never leaving by a zone line. Walks between the same POIs as the
-  anonymous crowd.
+  Hume male, face 0, full MNK Artifact (Temple set, model 66) — that walks between
+  the same POIs as the anonymous crowd, never leaving by a zone line.
+  **Presence is a 40% roll per genuine city visit** (`BRANSON_SPAWN_CHANCE`), not
+  every city every time — the "he's stalking me" fix of 2026-09-12. The roll is
+  decided once and stored on the zone; a Mog House trip back into the same zone
+  reuses it (he does not blink out while you check your Mog House), while an actual
+  zone change re-rolls. The discriminator is a per-player `lastZone` module table,
+  because `onZoneOut` fires on Mog House *entry* too and so can't tell a real exit
+  from a Mog House dip.
   Greets the player by name within 10 yalms: stops, turns, then waves 800 ms later
   (`WAVE_DELAY_MS`) so the rotation has reached the client before the emote plays,
   with the spoken line riding along with the wave. Holds for 15 s re-facing them on
   a 2 s poll, and breaks off ~2 s after they leave 13 yalms (wider than the entry range,
   so a player on the boundary does not flicker the greeting on and off). Runs
-  rather than walks away afterwards; 45 s cooldown before the next greeting.
+  rather than walks away afterwards.
+  **The greeting itself is now a 50% roll per pass-by** (`GREET_SAY_CHANCE`), rolled
+  once on the *rising edge* of entering range (latched via a `bransonNear` local var
+  so lingering doesn't re-roll every 2 s tick), **and only if he hasn't spoken to
+  that player in 10 minutes** (`GREET_GLOBAL_COOLDOWN`, seconds). That cooldown is a
+  per-player `lastGreet` module table stamped when he actually speaks, so it survives
+  him despawning as you cross cities — a local var on the NPC would reset each spawn.
+  The old 45 s per-NPC `bransonCool` is gone, subsumed by the 10-min floor.
   Rides on `xi.xiLife.runtime`, a small handle table exported from the bottom of
   `xi_life.lua` (prepared zone data plus the standing-slot bookkeeping), so he and
   the crowd can never claim the same slot. He deliberately does **not** set the
@@ -161,10 +173,15 @@ only reload on **map server restart**, unlike NPC/mob scripts.
   stuck watchdog off him. Uses `xiLifePoint` / `xiLifeSlot` because the borrowed
   slot helpers read those two names.
   **Verified in client 2026-08-18:** face 0 (Hume male 1A) reads as the dark-haired
-  head, the Temple set renders as a full AF1 monk, and he stops to speak when the
-  player passes. Merged to `xilife` as 66c64767a0. If a different head is ever
-  wanted, `BRANSON_FACE` is the only knob — the byte is `(face - 1) * 2` plus 1 for
-  the B variant, valid 0-15.
+  head, the Temple set renders as a full AF1 monk, and he stops, turns and waves when
+  the player passes. Base behaviour merged to `xilife` as 66c64767a0. If a different
+  head is ever wanted, `BRANSON_FACE` is the only knob — the byte is `(face - 1) * 2`
+  plus 1 for the B variant, valid 0-15.
+  **Unverified as of 2026-09-12** (branch `claude-branson-rarity`): the 40% presence,
+  50%-per-pass greeting and 10-minute floor are logic-checked and parse clean but not
+  yet felt out in the client — the probabilities and the 10-min window are exactly the
+  kind of thing that wants a play session to judge. `BRANSON_SPAWN_CHANCE`,
+  `GREET_SAY_CHANCE` and `GREET_GLOBAL_COOLDOWN` are the dials.
 
 - **OPEN 2026-08-18 — PlayerNPCs standing above Lower Jeuno's auction house**
   (branch `claude-npc-spacing`). Three attempted fixes have **not** resolved it;
