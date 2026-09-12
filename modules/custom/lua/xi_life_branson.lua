@@ -2,16 +2,18 @@
 -- XI_LIFE: Branson
 --
 -- One named, recurring face. Where xi_life.lua fills a city with anonymous PlayerNPCs who arrive,
--- loiter and leave, Branson is the same character every time: a dark-haired Hume male in full monk
--- Artifact, spawned into whichever city zone the player is standing in, for as long as they are
--- standing in it. He never leaves through a zone line and is never replaced, so running into him in
--- Bastok an hour after seeing him in Jeuno is the point.
+-- loiter and leave, Branson is the same character: a dark-haired Hume male in full monk Artifact.
+-- He is not in every city, though - each city you walk into has a BRANSON_SPAWN_CHANCE of turning
+-- up with him in it, decided once per visit, so he stays an occasional face rather than a shadow.
+-- Where he is present he never leaves through a zone line and is never replaced for the length of
+-- the visit.
 --
--- His one trick is that he notices the player. Walk within GREET_RANGE and he stops dead, turns to
--- face them, waves, and greets them by name, then holds that for GREET_DURATION - re-facing them on
--- every tick, so he tracks the player rather than staring at where they used to be. He breaks off
--- early if the player walks away, and runs rather than walks when he does move on, which reads as
--- someone who stopped to say hello and is now late for something.
+-- His one trick is that he notices the player. Come within GREET_RANGE and, on a GREET_SAY_CHANCE
+-- roll, he stops dead, turns to face them, waves, and greets them by name, then holds that for
+-- GREET_DURATION - re-facing them on every tick, so he tracks the player rather than staring at
+-- where they used to be. He will not do it twice inside GREET_GLOBAL_COOLDOWN, and rolls only once
+-- per approach, so passing him is a chance of a hello rather than a guarantee of one. He breaks off
+-- early if the player walks away, and runs rather than walks when he does move on.
 --
 -- He rides on xi_life's prepared zone data through xi.xiLife.runtime: the same navmesh-validated
 -- points, and the same standing-slot bookkeeping, so he and the anonymous crowd can never claim the
@@ -83,9 +85,24 @@ local PLAYER_LEFT_GRACE  = 2
 -- the rotation to have reached the client and played out, short enough to still read as one motion.
 local WAVE_DELAY_MS = 800
 
--- Quiet period after a greeting before he will start another. Without it, a player who simply
--- stands still would be greeted again the moment he had run far enough away to come back.
-local GREET_COOLDOWN = 45
+-- Whether he shows up at all. Rolled once per genuine city visit - one where the zone actually
+-- changed since the player was last placed somewhere, so Jeuno -> field -> Jeuno re-rolls but a
+-- Jeuno -> Mog House -> Jeuno trip keeps the previous answer and he does not blink out mid-visit.
+-- Most cities you walk into will not have him, which is the point: an occasional face, not a
+-- fixture in every zone.
+local BRANSON_SPAWN_CHANCE = 40
+
+-- Whether he says anything when the player comes within GREET_RANGE. Rolled once per approach - the
+-- rising edge of entering range - never every tick, or lingering near him would re-roll until it
+-- hit and every pass would end in a greeting. A failed roll is spent for that approach: he stays
+-- quiet until the player leaves range and comes back.
+local GREET_SAY_CHANCE = 50
+
+-- And he will not greet the same player twice inside this window, in seconds, however many times
+-- they pass. Unlike every other timer here this has to survive him despawning and respawning as the
+-- player walks from one city to the next, so it lives in a module table keyed by player rather than
+-- in a local var on the NPC, which would reset with each fresh spawn. Ten minutes.
+local GREET_GLOBAL_COOLDOWN = 600
 
 -- A beat between spawning and setting off, so he does not pop into existence already sprinting.
 local ARRIVAL_PAUSE_MS = 5000
@@ -151,6 +168,21 @@ local zoneState = {}
 
 local MODE_TRAVEL   = 0
 local MODE_GREETING = 1
+
+-- Cross-zone greeting cooldown, keyed by player id: 'when did he last actually speak to this
+-- player'. Module-level so it outlives him despawning as the player crosses from one city to the
+-- next - a local var on the NPC would reset with every new zone's fresh spawn.
+local lastGreet = {}
+
+-- The city zone each player was last placed in, keyed by player id. Used to tell a genuine new
+-- visit (re-roll his presence) from a Mog House trip back into the same zone (keep the decision).
+local lastZone = {}
+
+local function canGreet(player)
+    local last = lastGreet[player:getID()] or 0
+
+    return (GetSystemTime() - last) >= GREET_GLOBAL_COOLDOWN
+end
 
 -- xi_life.lua and this file are separate entries in modules/init.txt, and nothing sequences them
 -- beyond the order they are listed in. Resolving the handle at call time rather than capturing it
@@ -373,6 +405,11 @@ local function startGreeting(npc, zone, zoneId, player)
             return
         end
 
+        -- Stamp the cooldown at the moment he actually speaks, not when the greeting was committed
+        -- 800ms ago: if the player slipped out of range in that gap he never said anything, so the
+        -- ten minutes should not start.
+        lastGreet[target:getID()] = GetSystemTime()
+
         -- MOTION, not ALL: the client would otherwise print its own "Branson waves" line on top of
         -- what he is already saying. The animation is the half worth having.
         n:sendEmote(target, xi.emote.WAVE, xi.emoteMode.MOTION, false)
@@ -386,7 +423,10 @@ end
 local function endGreeting(npc, zone, zoneId)
     npc:setLocalVar('bransonMode', MODE_TRAVEL)
     npc:setLocalVar('bransonLeft', 0)
-    npc:setLocalVar('bransonCool', GetSystemTime() + GREET_COOLDOWN)
+
+    -- No per-NPC cooldown to set here: the GREET_GLOBAL_COOLDOWN table is what stops him greeting
+    -- again, and bransonNear (still latched, since the player is right in front of him) stops the
+    -- approach roll re-firing until they actually leave and come back.
 
     -- Running, not walking. Someone who stopped mid-errand to say hello does not amble away from it.
     walkOn(npc, zone, zoneId, true)
@@ -486,12 +526,26 @@ tick = function(npc, zone, zoneId, generation)
 
         stuckTick(npc, zone, zoneId)
 
-        if GetSystemTime() < npc:getLocalVar('bransonCool') then
+        -- One roll per approach, on the rising edge of the player entering greeting range.
+        -- bransonNear latches while they are in range so lingering does not re-roll every tick, and
+        -- clears when they leave, arming the next pass. The ten-minute gate is checked before the
+        -- roll rather than after, so a failed roll costs nothing - he can still greet on a later
+        -- pass once the window has elapsed.
+        local player = nearestPlayer(npc, zone, GREET_RANGE)
+
+        if not player then
+            npc:setLocalVar('bransonNear', 0)
+
             return
         end
 
-        local player = nearestPlayer(npc, zone, GREET_RANGE)
-        if player then
+        if npc:getLocalVar('bransonNear') == 1 then
+            return
+        end
+
+        npc:setLocalVar('bransonNear', 1)
+
+        if canGreet(player) and math.random(100) <= GREET_SAY_CHANCE then
             startGreeting(npc, zone, zoneId, player)
         end
     end)
@@ -632,17 +686,36 @@ m:addOverride('InteractionGlobal.afterZoneIn', function(player, fallbackFn)
 
         zoneState[zoneId] = zoneState[zoneId] or {}
 
+        local pid = player:getID()
+
         if not lifeState.enabled then
+            -- Not a city he lives in, but it is still somewhere the player now stands: record it so
+            -- that walking back into a city he might be in counts as a genuine fresh visit.
+            lastZone[pid] = zoneId
             zoneState[zoneId].active = false
         elseif player:inMogHouse() then
             -- A Mog House is a zone change back into the same zone, leaving the player standing in
             -- the street server-side. Anything spawned now would be pushed to their client and walk
-            -- through the room, so take him away until they come back out.
+            -- through the room, so take him away until they come back out. His presence decision and
+            -- lastZone are both left untouched, so stepping back out reuses the answer rather than
+            -- rolling afresh - he does not vanish for a Mog House trip.
             zoneState[zoneId].active = false
             despawnBranson(zone, zoneId)
         else
+            -- Roll his presence once per genuine visit and remember it on the zone. Deciding here
+            -- rather than inside spawnBranson keeps the answer stable across the many ticks of one
+            -- visit and, crucially, across a Mog House trip, which comes back through this same
+            -- branch with the zone unchanged.
+            if lastZone[pid] ~= zoneId then
+                zoneState[zoneId].present = math.random(100) <= BRANSON_SPAWN_CHANCE
+            end
+
+            lastZone[pid] = zoneId
             zoneState[zoneId].active = true
-            spawnBranson(zone, zoneId)
+
+            if zoneState[zoneId].present then
+                spawnBranson(zone, zoneId)
+            end
         end
     end
 
