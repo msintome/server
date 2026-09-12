@@ -124,6 +124,12 @@ xi.xiLife.customPois =
         { name = 'Hieronymus', kind = 'wander', x = -325.702, y = -12.601, z = -51.150 },
     },
 
+    [252] =
+    {
+        { name = 'Comitiolus', kind = 'wander', x = 100.636, y = -7.086, z = -13.898 },
+        { name = 'Stray_Cloud', kind = 'wander', x = -19.238, y = 1.097, z = -22.977 },
+    },
+
     [94] =
     {
         { name = 'Kristen', kind = 'wander', x = 2.195, y = -1.000, z = 60.296 },
