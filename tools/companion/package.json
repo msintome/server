@@ -1,0 +1,17 @@
+{
+  "name": "amaliexi-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Second-screen companion for AmalieXI: live map and character panel fed by the companion exporter module and xidb.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mysql2": "^3.11.0"
+  }
+}

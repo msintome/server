@@ -1,0 +1,10 @@
+{
+  "port": 8095,
+  "db": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "xigear",
+    "password": "change-me",
+    "database": "xidb"
+  }
+}

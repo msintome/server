@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AmalieXI Companion</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <main class="layout">
+        <section class="map-pane">
+            <canvas id="map"></canvas>
+
+            <div class="map-overlay map-title">
+                <div id="zone-name" class="zone-name">Waiting for the server…</div>
+                <div id="zone-meta" class="zone-meta"></div>
+            </div>
+
+            <div class="map-overlay map-controls">
+                <label><input type="checkbox" id="follow" checked> Follow</label>
+                <label title="Draw ground well above you see-through, so walkways overhead do not hide your floor"><input type="checkbox" id="floor-only" checked> Fade overhead</label>
+                <label><input type="checkbox" id="trail" checked> Trail</label>
+                <button type="button" id="recentre">Recentre</button>
+            </div>
+
+            <div class="map-overlay map-coords" id="coords"></div>
+            <div class="map-empty" id="map-empty" hidden></div>
+        </section>
+
+        <aside class="side">
+            <header class="card who">
+                <div class="who-line">
+                    <span id="status-dot" class="dot dot-offline" title="Offline"></span>
+                    <h1 id="char-name">—</h1>
+                    <span id="char-job" class="job"></span>
+                </div>
+                <div id="status-text" class="muted small">No snapshot yet</div>
+            </header>
+
+            <section class="card">
+                <div class="bar-row">
+                    <span class="bar-label">HP</span>
+                    <div class="bar"><div id="hp-bar" class="fill fill-hp"></div></div>
+                    <span id="hp-text" class="bar-value"></span>
+                </div>
+                <div class="bar-row">
+                    <span class="bar-label">MP</span>
+                    <div class="bar"><div id="mp-bar" class="fill fill-mp"></div></div>
+                    <span id="mp-text" class="bar-value"></span>
+                </div>
+                <div class="bar-row">
+                    <span class="bar-label">TP</span>
+                    <div class="bar"><div id="tp-bar" class="fill fill-tp"></div></div>
+                    <span id="tp-text" class="bar-value"></span>
+                </div>
+                <div class="bar-row">
+                    <span class="bar-label">EXP</span>
+                    <div class="bar"><div id="exp-bar" class="fill fill-exp"></div></div>
+                    <span id="exp-text" class="bar-value"></span>
+                </div>
+                <div id="exp-rate" class="muted small"></div>
+            </section>
+
+            <section class="card" id="target-card" hidden>
+                <h2>Target</h2>
+                <div class="target-line">
+                    <span id="target-name" class="target-name"></span>
+                    <span id="target-meta" class="muted small"></span>
+                </div>
+                <div class="bar"><div id="target-bar" class="fill fill-target"></div></div>
+            </section>
+
+            <section class="card">
+                <h2>Effects</h2>
+                <div id="effects" class="chips"></div>
+            </section>
+
+            <section class="card">
+                <h2>Crafts &amp; hobbies</h2>
+                <div id="crafts" class="crafts"></div>
+                <div id="gil" class="muted small"></div>
+            </section>
+
+            <footer id="db-status" class="muted small footer"></footer>
+        </aside>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+</body>
+</html>
