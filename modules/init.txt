@@ -40,3 +40,4 @@ custom/commands/
 custom/lua/test_npcs_in_gm_home.lua
 custom/lua/xi_life.lua
 custom/lua/xi_life_branson.lua
+custom/lua/companion_exporter.lua
