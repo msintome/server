@@ -63,6 +63,10 @@ local function jsonArray(t)
     return setmetatable(t or {}, arrayMeta)
 end
 
+-- A nil value removes its key from a Lua table, so a field the app should see as null rather than
+-- missing is set to this instead.
+local jsonNull = {}
+
 local escapes =
 {
     ['"']  = '\\"',
@@ -132,6 +136,8 @@ encode = function(value)
         return encodeNumber(value)
     elseif valueType == 'boolean' then
         return tostring(value)
+    elseif value == jsonNull then
+        return 'null'
     elseif valueType == 'table' then
         return encodeTable(value)
     end
@@ -306,7 +312,7 @@ local function buildSnapshot(player)
             speed         = player:getSpeed(),
         },
 
-        target  = describeTarget(player),
+        target  = describeTarget(player) or jsonNull,
         effects = describeEffects(player),
     }
 end
