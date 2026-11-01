@@ -234,10 +234,29 @@ only reload on **map server restart**, unlike NPC/mob scripts.
   a bonus). Higher fidelity, larger build (auth → world → map handshake, Blowfish +
   checksum, keepalive). Owning both ends allows a simplified localhost-handshake shortcut.
 
-### FFXI companion web app (planned — second screen)
+### FFXI companion web app (second screen)
 
 Single Node process, JSON API endpoints polling `xidb` live. Panels:
 
+- **NEW 2026-11-01 — Live map + character panel** (branch `claude-companion-app-xilife`,
+  `tools/companion/`, run with `npm start`, http://127.0.0.1:8095/). **Verified in client:**
+  position, facing arrow and north-up all match the game; target card and EXP/session counted a
+  live kill. Two halves:
+  - `modules/custom/lua/companion_exporter.lua` writes `log/companion_<Name>.json` once a
+    second (position, zone, vitals, job, target, effects), restarted on every `afterZoneIn`
+    with a generation counter. Needed because `chars.pos_*` is only saved on zone/logout —
+    the DB never knows where you are mid-session. EXP, skills, crafts and gil *are* saved on
+    every change, so the app reads those from `xidb` instead.
+  - The map is the server's own navmesh (`navmeshes/<Zone_Name>.nav`, Detour `MSET` v1,
+    32-bit tile refs), converted detour (x,y,z) → game (x,-y,-z) as in `CNavMesh::ToFFXIPos`.
+    Exact by construction, no per-map calibration. Game axes: x east, z north, negative y up;
+    rotation byte is `-atan2(dz, dx) * 128 / pi`. TNL for level L is `exp_base` row L + 1;
+    craft levels in `char_skills` are tenths.
+  - DB login defaults to the servers' own `settings/network.lua` (root, which is now
+    `mysql_native_password` — the GSSAPI note under MariaDB auth is out of date for root).
+    `config.json` (gitignored) can switch it to the read-only `xigear` user.
+  - Not yet built: event log (kills, synths, catches — check which Lua hooks exist first),
+    the game's painted maps as an alternative to the navmesh, crafting/fishing advisors.
 - **Levelling zone finder** — single-file HTML/JS, BG-Wiki camp data, draggable
   histogram, colour-coded detection badges, milestone gate cards, CP/AOE tabs,
   localStorage state. (Built.)
