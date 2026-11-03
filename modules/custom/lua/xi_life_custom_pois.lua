@@ -28,6 +28,8 @@ xi.xiLife.customPois =
         { name = 'Matthias', kind = 'wander', x = -114.101, y = -4.292, z = -107.276 },
         { name = 'Karine', kind = 'wander', x = -220.746, y = -6.051, z = -93.698 },
         { name = 'Oggodett', kind = 'wander', x = -186.673, y = -6.051, z = -108.654 },
+        { name = 'Igsli', kind = 'wander', x = -338.600, y = -10.000, z = -176.420 },
+        { name = 'Olwyn', kind = 'wander', x = -322.123, y = -10.319, z = -169.418 },
     },
 
     [250] =
@@ -128,6 +130,15 @@ xi.xiLife.customPois =
     {
         { name = 'Comitiolus', kind = 'wander', x = 100.636, y = -7.086, z = -13.898 },
         { name = 'Stray_Cloud', kind = 'wander', x = -19.238, y = 1.097, z = -22.977 },
+    },
+
+    [236] =
+    {
+        { name = 'Synergy_Enthusiast', kind = 'wander', x = 43.000, y = 7.500, z = -47.500 },
+        { name = 'Alib-Mufalib', kind = 'wander', x = 116.080, y = 8.372, z = -31.820 },
+        { name = 'Klaus', kind = 'wander', x = -89.355, y = -2.611, z = -15.256 },
+        { name = 'Flaco', kind = 'wander', x = -143.832, y = -6.000, z = 3.223 },
+        { name = 'Dehlner', kind = 'wander', x = -4.023, y = 4.898, z = 50.129 },
     },
 
     [94] =
